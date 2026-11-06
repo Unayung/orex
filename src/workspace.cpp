@@ -19,6 +19,8 @@ static constexpr qreal kGap = 6;
 // and the text.
 static constexpr qreal kBorder = 1;
 static constexpr qreal kPadding = 4;
+// Room at the top of a pane for the half of the drag handle inside it.
+static constexpr qreal kHandleClearance = 9;
 // A floating layer's border, and the title bar it's dragged by.
 static constexpr qreal kFrame = 4;
 static constexpr qreal kTitleBar = 22;
@@ -519,9 +521,11 @@ void Workspace::layoutPanes() {
             continue;
         const qreal inset = kBorder + kPadding;
         const QRectF slot = snapped(place.px);
+        // The drag handle sits on the top edge, so the text starts below it.
+        const qreal top = kBorder + kHandleClearance;
         slotList.append(QVariantMap{{"block_id", blockId}, {"x", slot.x()}, {"y", slot.y()}, {"width", slot.width()},
                                  {"height", slot.height()}, {"z", place.z}, {"floating", place.z > 0}});
-        const QRectF inner = slot.adjusted(inset, inset, -inset, -inset);
+        const QRectF inner = slot.adjusted(inset, top, -inset, -inset);
         pane.terminal->setPosition(inner.topLeft());
         pane.terminal->setSize(inner.size());
         pane.terminal->setZ(place.z);
@@ -944,7 +948,7 @@ void Workspace::dragLayer(const QString &layerId, qreal x, qreal y) {
     for (const auto &[blockId, origin] : it->panes) {
         const Pane pane = m_panes.value(blockId);
         if (pane.terminal)
-            pane.terminal->setPosition(origin + offset + QPointF(kBorder + kPadding, kBorder + kPadding));
+            pane.terminal->setPosition(origin + offset + QPointF(kBorder + kPadding, kBorder + kHandleClearance));
         if (pane.border)
             pane.border->setPosition(origin + offset);
     }

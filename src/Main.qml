@@ -156,6 +156,9 @@ ApplicationWindow {
                     objectName: "paneArea"
                     anchors.fill: parent
                     anchors.margins: 4
+                    // Room for the top row's drag handles, which sit across
+                    // the panes' top edges.
+                    anchors.topMargin: 9
 
                     // Dragging a pane by its handle: the pane under the pointer
                     // and the part of it the pane would go to.
@@ -201,14 +204,28 @@ ApplicationWindow {
                         delegate: Rectangle {
                             id: handle
                             required property var modelData
-                            width: 36
-                            height: 8
-                            radius: 4
+                            readonly property bool lit: grip.hovered || paneDrag.active
+                            width: 48
+                            height: 16
+                            radius: height / 2
                             x: Math.round(modelData.x + modelData.width / 2 - width / 2)
                             y: Math.round(modelData.y - height / 2 + 1)
                             z: modelData.z + 0.7
-                            color: grip.hovered || paneDrag.active ? Material.accent : Qt.lighter(theme.selection, 1.9)
-                            opacity: grip.hovered || paneDrag.active ? 1 : 0.75
+                            color: lit ? Material.accent : Qt.lighter(theme.selection, 1.7)
+                            border.width: 1
+                            border.color: lit ? Material.accent : Qt.lighter(theme.selection, 2.4)
+
+                            // A grip, so it reads as something to drag.
+                            Label {
+                                anchors.centerIn: parent
+                                anchors.verticalCenterOffset: -1
+                                text: ":::"
+                                font.pixelSize: 13
+                                font.bold: true
+                                font.letterSpacing: 1
+                                color: handle.lit ? theme.accentForeground : theme.foreground
+                                opacity: handle.lit ? 1 : 0.8
+                            }
 
                             HoverHandler {
                                 id: grip
