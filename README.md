@@ -46,7 +46,8 @@ Programs that report their status (Claude Code does, with OSC 7501) show it
 on their pane's border, in the session list, and on the tab: working pulses,
 blocked is red, done is green. When one needs you or finishes and you aren't
 looking at it, orex sends a desktop notification; its Open button takes you
-there.
+there. Click the bell on a session in the list to mute its notifications (🔕);
+its status still shows in orex.
 
 Click a pane to focus it. Everything else goes to the program in the pane.
 

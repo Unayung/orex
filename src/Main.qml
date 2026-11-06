@@ -237,7 +237,7 @@ ApplicationWindow {
                         width: status === "blocked" ? 9 : 7
                         height: width
                         radius: width / 2
-                        x: (row.isPane ? row.indent + 4 : row.width - 18) - width / 2
+                        x: (row.isPane ? row.indent + 4 : row.isSession ? row.width - 34 : row.width - 18) - width / 2
                         y: row.isSession ? 15 - height / 2 : (row.height - height) / 2
                         color: status === "blocked" ? theme.red : status === "done" ? theme.green : Material.accent
                         border.width: status === "blocked" ? 2 : 0
@@ -279,6 +279,26 @@ ApplicationWindow {
                             opacity: 0.5
                         }
                     }
+                    // Notifications for this session: a muted bell stays in
+                    // view; the plain one shows on hover, to mute with a click.
+                    Label {
+                        id: bell
+                        readonly property bool muted: row.modelData.muted ?? false
+                        visible: row.isSession && (muted || hover.hovered)
+                        anchors.right: parent.right
+                        anchors.rightMargin: 8
+                        y: 15 - height / 2
+                        text: muted ? "🔕" : "🔔"
+                        font.family: "Noto Color Emoji"
+                        font.pixelSize: 12
+                        opacity: muted ? 0.85 : (bellHover.hovered ? 0.9 : 0.35)
+                        HoverHandler { id: bellHover; cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: backend.toggleMute(row.modelData.host, row.modelData.session_id) }
+                        ToolTip.visible: bellHover.hovered
+                        ToolTip.text: muted ? qsTr("Notifications muted. Click to turn them on.") : qsTr("Mute notifications")
+                        ToolTip.delay: 400
+                    }
+
                     HoverHandler { id: hover }
                     ToolTip.visible: hover.hovered && (row.modelData.detail ?? row.modelData.label ?? "").length > 0
                                      && !row.isSession
@@ -286,7 +306,8 @@ ApplicationWindow {
                     ToolTip.delay: 600
                     TapHandler {
                         enabled: !row.placeholder
-                        onTapped: row.isPane ? backend.focusPane(row.modelData.session_id, row.modelData.block_id)
+                        // A click on the bell only mutes; it doesn't switch sessions.
+                        onTapped: bellHover.hovered ? undefined : row.isPane ? backend.focusPane(row.modelData.session_id, row.modelData.block_id)
                                 : row.isTab ? backend.focusTab(row.modelData.session_id, row.modelData.window_id)
                                 : backend.selectSession(row.modelData.session_id)
                     }

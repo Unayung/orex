@@ -88,6 +88,8 @@ void collectBlocks(const QJsonObject &node, QList<QPair<QString, QRectF>> &out) 
 Workspace::Workspace(Theme *theme, QObject *parent) : QObject(parent), m_theme(theme) {
     m_focusFollowsMouse = QSettings().value("focusFollowsMouse", false).toBool();
     m_fontSize = QSettings().value("fontSize", 12.0).toDouble();
+    for (const QString &key : QSettings().value("mutedSessions").toStringList())
+        m_muted.insert(key);
     connect(m_theme, &Theme::changed, this, [this] {
         for (Pane &pane : m_panes) {
             if (pane.stream)
@@ -242,6 +244,7 @@ void Workspace::rebuildSessions() {
             QVariantMap row = s.toMap();
             const QString sessionId = row.value("session_id").toString();
             row.insert("kind", "session");
+            row.insert("muted", m_muted.contains(host->key + "|" + sessionId));
             row.insert("host", host->key);
             row.insert("host_label", host->label);
             // The panes, tab by tab, in layout order. With more than one tab,
@@ -447,6 +450,18 @@ void Workspace::focusPane(const QString &sessionId, const QString &blockId) {
     // Focusing needs the session attached, which selecting it starts.
     m_pendingFocus = blockId;
     selectSession(sessionId);
+}
+
+void Workspace::toggleMute(const QString &hostKey, const QString &sessionId) {
+    const QString key = hostKey + "|" + sessionId;
+    const bool muted = !m_muted.contains(key);
+    if (muted)
+        m_muted.insert(key);
+    else
+        m_muted.remove(key);
+    QSettings().setValue("mutedSessions", QStringList(m_muted.cbegin(), m_muted.cend()));
+    rebuildSessions();
+    flashStatus(muted ? tr("Notifications muted for this session") : tr("Notifications on for this session"));
 }
 
 void Workspace::focusTab(const QString &sessionId, const QString &windowId) {
@@ -864,6 +879,9 @@ void Workspace::notify(Host *host, const QString &blockId, const QString &state)
     for (const QVariant &s : std::as_const(host->sessions))
         if (s.toMap().value("session_id").toString() == sessionId)
             sessionLabel = s.toMap().value("label").toString();
+    // Muted sessions still show their status in orex, just never pop up.
+    if (m_muted.contains(host->key + "|" + sessionId))
+        return;
     const QString where = host->key == "local" ? sessionLabel : QStringLiteral("%1 · %2").arg(host->label, sessionLabel);
     const QString title = state == "blocked" ? tr("Needs you: %1").arg(where) : tr("Done: %1").arg(where);
     const QString body = m_titles.value(blockId);
@@ -987,6 +1005,7 @@ QVariantList Workspace::actions() const {
         {"pane.minimize_all_floating", QT_TR_NOOP("Minimize or Restore Floating Windows"), "Ctrl+Alt+Shift+Return"},
         {"sidebar.toggle", QT_TR_NOOP("Show or Hide Sessions"), "Ctrl+Shift+B"},
         {"focus.follows_mouse", QT_TR_NOOP("Focus Follows Mouse: Turn On or Off"), ""},
+        {"session.mute", QT_TR_NOOP("Mute or Unmute Session Notifications"), ""},
         {"host.add", QT_TR_NOOP("Add Remote Host…"), ""},
         {"font.bigger", QT_TR_NOOP("Bigger Text"), "Ctrl+="},
         {"font.smaller", QT_TR_NOOP("Smaller Text"), "Ctrl+-"},
@@ -1068,6 +1087,11 @@ void Workspace::perform(const QString &id, const QVariant &arg) {
     if (id == "focus.follows_mouse") {
         setFocusFollowsMouse(!m_focusFollowsMouse);
         flashStatus(m_focusFollowsMouse ? tr("Focus follows the mouse: on") : tr("Focus follows the mouse: off"));
+        return;
+    }
+    if (id == "session.mute") {
+        if (m_host && !m_sessionId.isEmpty())
+            toggleMute(m_host->key, m_sessionId);
         return;
     }
     // New sessions go to the host on screen, or this machine.

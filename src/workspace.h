@@ -7,6 +7,7 @@
 // resizes them instead of tearing down their streams.
 
 #include <QHash>
+#include <QSet>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
@@ -83,6 +84,8 @@ public:
     Q_INVOKABLE void selectSession(const QString &sessionId);
     // Shows a session and focuses one of its panes, in whichever tab it is.
     Q_INVOKABLE void focusPane(const QString &sessionId, const QString &blockId);
+    // Turns a session's desktop notifications off or back on. Remembered.
+    Q_INVOKABLE void toggleMute(const QString &hostKey, const QString &sessionId);
     // Shows a session with one of its tabs in front.
     Q_INVOKABLE void focusTab(const QString &sessionId, const QString &windowId);
     Q_INVOKABLE void selectWindow(const QString &windowId);
@@ -207,6 +210,8 @@ private:
     // A pane to focus once the session being selected is attached.
     QString m_pendingFocus;
     QString m_pendingTab;
+    // Sessions whose notifications are off, as "host key|session ID".
+    QSet<QString> m_muted;
     // Each floating layer's frame position and its panes' positions as last
     // laid out, so a drag can move them by the same offset.
     struct DraggedLayer { QPointF frame; QList<QPair<QString, QPointF>> panes; };
