@@ -1,3 +1,4 @@
+import QtCore
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
@@ -105,11 +106,47 @@ ApplicationWindow {
             // Collapsed, the sidebar takes no room at all; pointing at the
             // window's left edge brings out a tab that opens it again.
             property bool open: true
+            // How wide it is when open; dragging its right edge changes it,
+            // and orex remembers it.
+            property real openWidth: 200
             visible: open
-            Layout.preferredWidth: open ? 200 : 0
+            Layout.preferredWidth: open ? openWidth : 0
             Layout.fillHeight: true
             color: Qt.darker(theme.background, 1.25)
             clip: true
+
+            Settings {
+                category: "sidebar"
+                property alias width: sidebar.openWidth
+            }
+
+            // The right edge: drag it to make the list wider or narrower.
+            Item {
+                id: sidebarEdge
+                z: 10
+                anchors.right: parent.right
+                width: 6
+                height: parent.height
+                HoverHandler { id: edgeGrip; cursorShape: Qt.SplitHCursor }
+                DragHandler {
+                    id: edgeDrag
+                    target: null
+                    xAxis.enabled: true
+                    yAxis.enabled: false
+                    onCentroidChanged: if (active) {
+                        const x = sidebarEdge.mapToItem(window.contentItem, centroid.position).x
+                        sidebar.openWidth = Math.round(Math.max(160, Math.min(520, x)))
+                    }
+                }
+                Rectangle {
+                    anchors.right: parent.right
+                    width: 2
+                    height: parent.height
+                    color: Material.accent
+                    visible: edgeGrip.hovered || edgeDrag.active
+                    opacity: edgeDrag.active ? 1 : 0.6
+                }
+            }
 
             Item {
                 id: sidebarHeader

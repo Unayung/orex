@@ -8,6 +8,8 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QPointer>
+#include <QSize>
+#include <QTimer>
 
 #include "wsclient.h"
 
@@ -48,6 +50,7 @@ private:
     void sendInput(const QByteArray &bytes);
     void flushInput();
     void requestSize(int cols, int rows);
+    void sendSize();
 
     RexClient *m_rex;
     QString m_sessionId;
@@ -61,6 +64,8 @@ private:
     QByteArray m_buffer;
 
     QJsonObject m_theme;
+    QSize m_pendingSize;
+    QTimer m_resizeTimer;
     QByteArray m_unsentInput;
     bool m_writing = false;
 };

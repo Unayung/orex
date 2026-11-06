@@ -17,6 +17,9 @@ BlockStream::BlockStream(RexClient *rex, const QString &sessionId, const QString
     });
     connect(terminal, &TerminalItem::input, this, &BlockStream::sendInput);
     connect(terminal, &TerminalItem::gridSizeChanged, this, &BlockStream::requestSize);
+    m_resizeTimer.setSingleShot(true);
+    m_resizeTimer.setInterval(120);
+    connect(&m_resizeTimer, &QTimer::timeout, this, &BlockStream::sendSize);
 }
 
 QString BlockStream::ownershipMode() {
@@ -170,8 +173,18 @@ void BlockStream::flushInput() {
 void BlockStream::requestSize(int cols, int rows) {
     if (cols <= 0 || rows <= 0)
         return;
+    // A drag of the window or the sidebar edge changes the size many times a
+    // second; each resize makes the program redraw, so send only where the
+    // size settles.
+    m_pendingSize = QSize(cols, rows);
+    m_resizeTimer.start();
+}
+
+void BlockStream::sendSize() {
+    if (m_pendingSize.isEmpty())
+        return;
     m_rex->call("com.superlogical.terminal.resize",
                 {{"session_id", m_sessionId},
                  {"block_id", m_blockId},
-                 {"args", QJsonObject{{"columns", cols}, {"rows", rows}}}});
+                 {"args", QJsonObject{{"columns", m_pendingSize.width()}, {"rows", m_pendingSize.height()}}}});
 }
