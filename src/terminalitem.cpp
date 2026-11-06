@@ -653,7 +653,10 @@ void TerminalItem::paint(QPainter *painter)
 void TerminalItem::keyPressEvent(QKeyEvent *event)
 {
     const auto mods = event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
-    if (event->key() == Qt::Key_V && mods == (Qt::ControlModifier | Qt::ShiftModifier)) {
+    // Shift+Insert pastes the clipboard too, as Ghostty does: voxtype types
+    // dictation by putting it on the clipboard and pressing Shift+Insert.
+    if ((event->key() == Qt::Key_V && mods == (Qt::ControlModifier | Qt::ShiftModifier)) ||
+        (event->key() == Qt::Key_Insert && mods == Qt::ShiftModifier)) {
         d->paste(this);
         event->accept();
         return;
