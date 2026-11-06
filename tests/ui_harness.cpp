@@ -9,6 +9,8 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QMouseEvent>
+#include <QTest>
 #include <QTimer>
 
 #include "../src/terminalitem.h"
@@ -69,6 +71,24 @@ int main(int argc, char *argv[]) {
                 }
             }
         });
+    // Drags with the mouse, "ms:x1,y1>x2,y2:png", and saves a screenshot
+    // before releasing, to see what's drawn mid-drag.
+    if (qEnvironmentVariableIsSet("OREX_DRAG")) {
+        const QStringList d = qEnvironmentVariable("OREX_DRAG").split(':');
+        const QStringList ends = d.at(1).split('>');
+        const QPointF from(ends[0].section(',', 0, 0).toDouble(), ends[0].section(',', 1).toDouble());
+        const QPointF to(ends[1].section(',', 0, 0).toDouble(), ends[1].section(',', 1).toDouble());
+        QTimer::singleShot(d.at(0).toInt(), [window, from, to, png = d.at(2)] {
+            // QTest goes through the window system queue, with timestamps,
+            // which pointer handlers need to see a drag.
+            QTest::mousePress(window, Qt::LeftButton, {}, from.toPoint());
+            for (int i = 1; i <= 20; ++i)
+                QTest::mouseMove(window, (from + (to - from) * (i / 20.0)).toPoint(), 16);
+            window->grabWindow().save(png);
+            qInfo() << "dragged, mid-drag shot" << png;
+            QTest::mouseRelease(window, Qt::LeftButton, {}, to.toPoint(), 16);
+        });
+    }
     for (int i = 1; i <= shots; ++i)
         QTimer::singleShot(i * 2000, [=, &workspace, &app] {
             window->grabWindow().save(QStringLiteral("%1-%2.png").arg(prefix).arg(i));

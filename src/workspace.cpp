@@ -397,6 +397,7 @@ void Workspace::layoutPanes() {
     QList<Place> places;
     QVariantList frames, minimized;
     m_placed.clear();
+    m_layerPanes.clear();
 
     const QString zoomed = active.value("zoomed_block_id").toString();
     if (!zoomed.isEmpty()) {
@@ -433,11 +434,15 @@ void Workspace::layoutPanes() {
             const QRectF frame(bounds.x() * w, bounds.y() * h, bounds.width() * w, bounds.height() * h);
             const QRectF inner = frame.adjusted(kFrame, kTitleBar, -kFrame, -kFrame);
             bool hasFocus = false;
+            DraggedLayer &dragged = m_layerPanes[layerId];
+            dragged.frame = frame.topLeft();
             for (const auto &[blockId, r] : std::as_const(blocks)) {
                 const QRectF local((r.x() - bounds.x()) / bounds.width(), (r.y() - bounds.y()) / bounds.height(),
                                    r.width() / bounds.width(), r.height() / bounds.height());
-                places.append({blockId, QRectF(inner.x() + local.x() * inner.width(), inner.y() + local.y() * inner.height(),
-                                               local.width() * inner.width(), local.height() * inner.height()), index * 10.0 + 1});
+                const QRectF px(inner.x() + local.x() * inner.width(), inner.y() + local.y() * inner.height(),
+                                local.width() * inner.width(), local.height() * inner.height());
+                places.append({blockId, px, index * 10.0 + 1});
+                dragged.panes.append({blockId, px.topLeft()});
                 m_placed.append({blockId, r});
                 hasFocus = hasFocus || blockId == focusedBlock;
             }
@@ -772,6 +777,16 @@ void Workspace::moveLayer(const QString &layerId, qreal x, qreal y) {
         m_rex->call("session.resize_layer", {{"session_id", m_sessionId}, {"layer_id", layerId},
                                             {"bounds", QJsonArray{fx, fy, bw, bh}}});
     }
+}
+
+void Workspace::dragLayer(const QString &layerId, qreal x, qreal y) {
+    const auto it = m_layerPanes.constFind(layerId);
+    if (it == m_layerPanes.constEnd())
+        return;
+    const QPointF offset = QPointF(x, y) - it->frame;
+    for (const auto &[blockId, origin] : it->panes)
+        if (TerminalItem *terminal = m_panes.value(blockId).terminal)
+            terminal->setPosition(origin + offset);
 }
 
 void Workspace::raiseLayer(const QString &layerId) {

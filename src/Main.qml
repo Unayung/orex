@@ -173,6 +173,10 @@ ApplicationWindow {
                             border.width: 1
                             border.color: modelData.focused ? Material.accent : Qt.lighter(theme.selection, 1.6)
                             radius: Math.min(4, theme.radius)
+                            // The terminals aren't children of the frame, so
+                            // carry them along while it's dragged.
+                            onXChanged: if (drag.active) backend.dragLayer(modelData.layer_id, x, y)
+                            onYChanged: if (drag.active) backend.dragLayer(modelData.layer_id, x, y)
 
                             Item {
                                 width: parent.width
@@ -210,7 +214,14 @@ ApplicationWindow {
                                 // Drag by the title bar; the server gets the new
                                 // place once, on release.
                                 DragHandler {
+                                    id: drag
                                     target: frame
+                                    // Rex keeps floating layers inside the window,
+                                    // so the drag stops at the edges too.
+                                    xAxis.minimum: 0
+                                    xAxis.maximum: paneArea.width - frame.width
+                                    yAxis.minimum: 0
+                                    yAxis.maximum: paneArea.height - frame.height
                                     onActiveChanged: if (!active) backend.moveLayer(frame.modelData.layer_id, frame.x, frame.y)
                                 }
                                 TapHandler { onTapped: backend.raiseLayer(frame.modelData.layer_id) }

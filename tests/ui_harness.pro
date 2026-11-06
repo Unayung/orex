@@ -1,4 +1,4 @@
-QT += core gui qml quick quickcontrols2 network
+QT += core gui qml quick quickcontrols2 network testlib
 CONFIG += c++17
 TARGET = ui_harness
 LIBS += -lghostty-vt

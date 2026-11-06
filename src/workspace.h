@@ -12,6 +12,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QTimer>
+#include <QPointF>
 #include <QRectF>
 #include <QVariantList>
 #include <functional>
@@ -73,6 +74,9 @@ public:
     // Moves a floating layer so its top-left corner is at x, y (pixels of the
     // pane area), keeping its size.
     Q_INVOKABLE void moveLayer(const QString &layerId, qreal x, qreal y);
+    // Moves a floating layer's panes along with its frame while it's being
+    // dragged, before the server hears about it. x, y as for moveLayer.
+    Q_INVOKABLE void dragLayer(const QString &layerId, qreal x, qreal y);
     Q_INVOKABLE void raiseLayer(const QString &layerId);
     Q_INVOKABLE void setLayerMinimized(const QString &layerId, bool minimized);
 
@@ -140,6 +144,10 @@ private:
     QHash<QString, Pane> m_panes;
     QString m_status;
     QVariantList m_frames, m_minimized;
+    // Each floating layer's frame position and its panes' positions as last
+    // laid out, so a drag can move them by the same offset.
+    struct DraggedLayer { QPointF frame; QList<QPair<QString, QPointF>> panes; };
+    QHash<QString, DraggedLayer> m_layerPanes;
     // Blocks of the active tab as drawn, with rects in window fractions.
     QList<QPair<QString, QRectF>> m_placed;
 };
