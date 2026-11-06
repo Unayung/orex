@@ -14,6 +14,7 @@
 #include <QInputMethod>
 #include <QInputMethodEvent>
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QtMath>
 
@@ -447,6 +448,7 @@ TerminalItem::TerminalItem(QQuickItem *parent)
     , d(new Private)
 {
     setFlag(ItemAcceptsInputMethod, true);
+    setAcceptedMouseButtons(Qt::LeftButton);
     setOpaquePainting(true);
 
     // Until a snapshot arrives, output still needs somewhere to go.
@@ -739,4 +741,12 @@ void TerminalItem::focusOutEvent(QFocusEvent *event)
     QQuickPaintedItem::focusOutEvent(event);
     d->reportFocus(this, GHOSTTY_FOCUS_LOST);
     update();
+}
+
+// ponytail: a click only focuses the pane. Mouse reporting to the program
+// and selection come later.
+void TerminalItem::mousePressEvent(QMouseEvent *event)
+{
+    forceActiveFocus(Qt::MouseFocusReason);
+    event->accept();
 }

@@ -11,13 +11,15 @@ HEADERS += \
     src/wsclient.h \
     src/rexclient.h \
     src/blockstream.h \
-    src/terminalitem.h
+    src/terminalitem.h \
+    src/workspace.h
 
 SOURCES += \
     src/main.cpp \
     src/wsclient.cpp \
     src/rexclient.cpp \
     src/blockstream.cpp \
-    src/terminalitem.cpp
+    src/terminalitem.cpp \
+    src/workspace.cpp
 
 RESOURCES += src/resources.qrc
