@@ -52,7 +52,7 @@ its status still shows in orex.
 Right-click a pane for copy, paste, split, float, zoom, and close; they act on
 that pane. Click a pane to focus it. Everything else goes to the program in the pane.
 
-With more than one pane, each has a handle on its top edge. Drag it onto
+With more than one pane, a pane's title bar is its handle. Drag it onto
 another pane: near an edge puts it on that side, the middle swaps the two.
 Panes move between the layout and floating windows the same way. Drag the
 border between two panes to resize them.

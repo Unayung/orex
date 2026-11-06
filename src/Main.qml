@@ -432,28 +432,40 @@ ApplicationWindow {
                     }
 
                     // Each pane's title bar: its agent's icon and the title the
-                    // program set, such as Claude Code's summary of the task.
+                    // program set, such as Claude Code's summary of the task. With
+                    // more than one pane the whole bar is the handle you move the
+                    // pane by: it lights up under the pointer, and the dots in the
+                    // middle say it can be dragged.
                     Repeater {
                         model: backend.paneSlots
                         delegate: Item {
+                            id: bar
                             required property var modelData
+                            readonly property bool draggable: backend.paneSlots.length > 1
+                            readonly property bool lit: draggable && (barHover.hovered || barDrag.active)
+                            readonly property color fg: Qt.color(theme.foreground)
+                            readonly property color accent: Material.accent
                             // Inside the border at its widest, the 2px of a pane
                             // showing its program's status, so it never covers it.
                             x: modelData.x + 2
                             y: modelData.y + 2
                             width: modelData.width - 4
                             height: 20
-                            z: modelData.z + 0.6
-                            readonly property color fg: Qt.color(theme.foreground)
+                            // Above the dividers, so a press on the bar moves the
+                            // pane rather than the border next to it.
+                            z: modelData.z + 0.9
 
                             Rectangle {
                                 anchors.fill: parent
-                                color: Qt.tint(theme.background, Qt.rgba(parent.fg.r, parent.fg.g, parent.fg.b, 0.06))
+                                color: barDrag.active ? Qt.tint(theme.background, Qt.rgba(bar.accent.r, bar.accent.g, bar.accent.b, 0.35))
+                                     : bar.lit ? Qt.tint(theme.background, Qt.rgba(bar.fg.r, bar.fg.g, bar.fg.b, 0.13))
+                                     : Qt.tint(theme.background, Qt.rgba(bar.fg.r, bar.fg.g, bar.fg.b, 0.06))
+                                Behavior on color { ColorAnimation { duration: 90 } }
                             }
                             Image {
                                 id: headerIcon
-                                visible: (modelData.icon ?? "").length > 0
-                                source: modelData.icon ?? ""
+                                visible: (bar.modelData.icon ?? "").length > 0
+                                source: bar.modelData.icon ?? ""
                                 x: 8
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: 12
@@ -463,61 +475,48 @@ ApplicationWindow {
                             Label {
                                 anchors.verticalCenter: parent.verticalCenter
                                 x: headerIcon.visible ? 26 : 8
-                                // Stops short of the drag handle in the middle, which
-                                // shows once there's more than one pane.
-                                width: backend.paneSlots.length > 1 ? parent.width / 2 - x - 30 : parent.width - x - 8
+                                // Stops short of the grip in the middle.
+                                width: bar.draggable ? parent.width / 2 - x - 16 : parent.width - x - 8
                                 elide: Text.ElideRight
-                                text: modelData.title ?? ""
+                                text: bar.modelData.title ?? ""
                                 font.pixelSize: 11
-                                font.bold: modelData.focused ?? false
+                                font.bold: bar.modelData.focused ?? false
                                 color: theme.foreground
-                                opacity: (modelData.focused ?? false) ? 0.9 : 0.55
+                                opacity: (bar.modelData.focused ?? false) ? 0.9 : 0.55
                             }
-                        }
-                    }
-
-                    // A handle on each pane's top edge, once there's more than
-                    // one pane to arrange.
-                    Repeater {
-                        model: backend.paneSlots.length > 1 ? backend.paneSlots : []
-                        delegate: Rectangle {
-                            id: handle
-                            required property var modelData
-                            readonly property bool lit: grip.hovered || paneDrag.active
-                            width: 48
-                            height: 14
-                            radius: height / 2
-                            // In the middle of the pane's title bar (2px in, 20 high).
-                            x: Math.round(modelData.x + modelData.width / 2 - width / 2)
-                            y: Math.round(modelData.y + 2 + (20 - height) / 2)
-                            // Above the divider it sits on, so grabbing the grip
-                            // moves the pane and the rest of the line resizes.
-                            z: modelData.z + 0.9
-                            color: lit ? Material.accent : Qt.lighter(theme.surface, 1.7)
-                            border.width: 1
-                            border.color: lit ? Material.accent : Qt.lighter(theme.surface, 2.4)
-
-                            // A grip, so it reads as something to drag.
-                            Label {
+                            // The grip: two rows of three dots, part of the bar.
+                            Grid {
+                                visible: bar.draggable
                                 anchors.centerIn: parent
-                                anchors.verticalCenterOffset: -1
-                                text: ":::"
-                                font.pixelSize: 13
-                                font.bold: true
-                                font.letterSpacing: 1
-                                color: handle.lit ? theme.accentForeground : theme.foreground
-                                opacity: handle.lit ? 1 : 0.8
+                                rows: 2
+                                columns: 3
+                                spacing: 2
+                                Repeater {
+                                    model: 6
+                                    Rectangle {
+                                        width: 2
+                                        height: 2
+                                        radius: 1
+                                        color: bar.lit ? bar.accent : theme.foreground
+                                        opacity: bar.lit ? 1 : 0.35
+                                    }
+                                }
                             }
 
                             HoverHandler {
-                                id: grip
-                                cursorShape: paneDrag.active ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                                id: barHover
+                                enabled: bar.draggable
+                                cursorShape: barDrag.active ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                            }
+                            TapHandler {
+                                onTapped: backend.focusPane(backend.currentSession, bar.modelData.block_id)
                             }
                             DragHandler {
-                                id: paneDrag
+                                id: barDrag
+                                enabled: bar.draggable
                                 target: null
-                                onCentroidChanged: if (active) paneArea.trackDrop(handle.modelData.block_id,
-                                                                                 handle.mapToItem(paneArea, centroid.position))
+                                onCentroidChanged: if (active) paneArea.trackDrop(bar.modelData.block_id,
+                                                                                 bar.mapToItem(paneArea, centroid.position))
                                 onActiveChanged: if (!active) paneArea.finishDrop()
                             }
                         }
