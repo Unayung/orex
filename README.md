@@ -1,6 +1,6 @@
 # orex
 
-![orex showing a Rex session with three panes](docs/screenshot.png)
+![orex showing a session with tiled and floating panes, agent icons, and statuses](docs/screenshot.png)
 
 Rex on Omarchy, shortened to orex. [Rex](https://superlogical.com) keeps
 terminal sessions running on a server, and its Mac and iOS apps show them. Rex has
@@ -35,6 +35,10 @@ it back.
 
 ## Keys
 
+Ctrl+Shift+P lists every action with its key, so you can search for one.
+
+![The command palette](docs/palette.png)
+
 | Key | Does |
 |---|---|
 | Ctrl+Shift+] / Ctrl+Shift+[ | Next / previous tab |
@@ -57,10 +61,14 @@ its status still shows in orex.
 Right-click a pane for copy, paste, split, float, zoom, and close; they act on
 that pane. Click a pane to focus it. Everything else goes to the program in the pane.
 
+![The right-click menu of a pane](docs/menu.png)
+
 With more than one pane, a pane's title bar is its handle. Drag it onto
 another pane: near an edge puts it on that side, the middle swaps the two.
 Panes move between the layout and floating windows the same way. Drag the
 border between two panes to resize them.
+
+![Dragging a pane by its title bar, with a preview under the pointer](docs/drag.png)
 
 ## Settings
 
@@ -68,6 +76,8 @@ The gear at the top of the session list (or Ctrl+,) opens every setting: text
 size, list width, focus following the mouse, desktop notifications, copying
 selections to the clipboard, remote hosts, and muted sessions. Changes apply
 right away.
+
+![The settings panel](docs/settings.png)
 
 ## Build
 
