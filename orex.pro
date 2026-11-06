@@ -14,7 +14,8 @@ HEADERS += \
     src/blockstream.h \
     src/terminalitem.h \
     src/workspace.h \
-    src/theme.h
+    src/theme.h \
+    src/paneborder.h
 
 SOURCES += \
     src/main.cpp \

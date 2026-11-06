@@ -23,6 +23,7 @@
 class BlockStream;
 class QQuickItem;
 class TerminalItem;
+class PaneBorder;
 
 class Workspace : public QObject {
     Q_OBJECT
@@ -102,6 +103,7 @@ private:
         // The pane area owns the item, and QML may delete it first when
         // the window closes, so hold it weakly.
         QPointer<TerminalItem> terminal;
+        QPointer<PaneBorder> border;
         BlockStream *stream = nullptr;
         bool started = false;
     };
@@ -128,6 +130,8 @@ private:
     void closePane(const QString &blockId);
     void closeAllPanes();
     void setStatus(const QString &status);
+    // Shows a status for a few seconds, for errors of single actions.
+    void flashStatus(const QString &status);
 
     Theme *m_theme;
     QList<Host *> m_hosts;    // this machine first

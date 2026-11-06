@@ -50,6 +50,13 @@ int main(int argc, char *argv[]) {
         const QString action = step.section(':', 1).section('=', 0, 0);
         const QString arg = step.section('=', 1);
         QTimer::singleShot(at, [&workspace, action, arg] {
+            // Never act on sessions the tester listed as off limits, such as
+            // the user's own, even if an action switched to one of them.
+            const QStringList protectedIds = qEnvironmentVariable("OREX_PROTECT").split(',', Qt::SkipEmptyParts);
+            if (protectedIds.contains(workspace.currentSession())) {
+                qInfo() << "skip (protected session)" << action;
+                return;
+            }
             qInfo() << "action" << action << arg;
             workspace.perform(action, arg.isEmpty() ? QVariant() : QVariant(arg));
         });

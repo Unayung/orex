@@ -171,7 +171,9 @@ ApplicationWindow {
                             z: modelData.z
                             color: theme.background
                             border.width: 1
-                            border.color: modelData.focused ? Material.accent : Qt.lighter(theme.selection, 1.6)
+                            // The panes inside draw their own borders, and the
+                            // focused one shows the accent, so the frame stays quiet.
+                            border.color: Qt.lighter(theme.selection, 1.6)
                             radius: Math.min(4, theme.radius)
                             // The terminals aren't children of the frame, so
                             // carry them along while it's dragged.

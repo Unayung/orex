@@ -8,12 +8,15 @@
 #include <QUrl>
 
 #include "blockstream.h"
+#include "paneborder.h"
 #include "terminalitem.h"
 
-// Space between panes, where the area's background shows as a divider.
-static constexpr qreal kGap = 2;
+// Space between panes; each pane's own border draws the divider, so none.
+static constexpr qreal kGap = 0;
+// Each pane's border, inside its slot.
+static constexpr qreal kBorder = 1;
 // A floating layer's border, and the title bar it's dragged by.
-static constexpr qreal kFrame = 1;
+static constexpr qreal kFrame = 0;
 static constexpr qreal kTitleBar = 22;
 
 // The blocks of a layout tree with their rects, as fractions of the window.
@@ -368,6 +371,10 @@ void Workspace::applyView(const QJsonObject &view) {
         return;
     m_revision = revision;
     m_view = view;
+    if (view.value("windows").toArray().isEmpty())
+        setStatus(tr("This session has no tabs. Press Ctrl+Shift+T for a new one."));
+    else if (m_status.startsWith(tr("This session has no tabs")))
+        setStatus(QString());
     emit viewChanged();
     layoutPanes();
 }
@@ -442,7 +449,7 @@ void Workspace::layoutPanes() {
                 const QRectF px(inner.x() + local.x() * inner.width(), inner.y() + local.y() * inner.height(),
                                 local.width() * inner.width(), local.height() * inner.height());
                 places.append({blockId, px, index * 10.0 + 1});
-                dragged.panes.append({blockId, px.topLeft()});
+                dragged.panes.append({blockId, px.topLeft()});  // the slot, border included
                 m_placed.append({blockId, r});
                 hasFocus = hasFocus || blockId == focusedBlock;
             }
@@ -457,20 +464,27 @@ void Workspace::layoutPanes() {
         emit framesChanged();
     }
 
-    for (Pane &pane : m_panes)
+    for (Pane &pane : m_panes) {
         if (pane.terminal)
             pane.terminal->setVisible(false);
+        if (pane.border)
+            pane.border->setVisible(false);
+    }
 
     for (const Place &place : std::as_const(places)) {
         const QString blockId = place.blockId;
         Pane &pane = m_panes[blockId];
         if (!pane.stream) {
             pane.terminal = new TerminalItem(m_area);
+            pane.border = new PaneBorder(m_area);
             pane.terminal->setSelectionColor(QColor(m_theme->selection()));
             pane.stream = new BlockStream(m_rex, m_sessionId, blockId, pane.terminal, this);
             pane.stream->setTheme(m_theme->terminalTheme());
             connect(pane.stream, &BlockStream::ended, this, [this](const QString &reason) {
-                setStatus(tr("A pane's stream ended: %1").arg(reason));
+                // 4000 is how Rex says the pane closed, which the next view
+                // shows by itself; anything else is worth saying.
+                if (!reason.startsWith("4000"))
+                    flashStatus(tr("A pane's stream ended: %1").arg(reason));
             });
             connect(pane.terminal, &QQuickItem::activeFocusChanged, this, [this, blockId](bool focused) {
                 if (focused && blockId != this->focusedBlock())
@@ -485,10 +499,21 @@ void Workspace::layoutPanes() {
         }
         if (!pane.terminal)
             continue;
-        pane.terminal->setPosition(place.px.topLeft());
-        pane.terminal->setSize(place.px.size());
+        const QRectF inner = place.px.adjusted(kBorder, kBorder, -kBorder, -kBorder);
+        pane.terminal->setPosition(inner.topLeft());
+        pane.terminal->setSize(inner.size());
         pane.terminal->setZ(place.z);
         pane.terminal->setVisible(true);
+        if (pane.border) {
+            pane.border->setPosition(place.px.topLeft());
+            pane.border->setSize(place.px.size());
+            pane.border->setZ(place.z + 0.5);
+            // The focused pane stands out once there's more than one to tell apart.
+            pane.border->setColor(blockId == focusedBlock && places.size() > 1
+                                      ? QColor(m_theme->accent())
+                                      : QColor(m_theme->selection()).lighter(160));
+            pane.border->setVisible(true);
+        }
         // Start after the first size is set, so the pty is claimed at the
         // size this pane really has.
         if (!pane.started) {
@@ -528,11 +553,21 @@ void Workspace::closePane(const QString &blockId) {
     }
     if (pane.terminal)
         pane.terminal->deleteLater();
+    if (pane.border)
+        pane.border->deleteLater();
 }
 
 void Workspace::closeAllPanes() {
     for (const QString &blockId : m_panes.keys())
         closePane(blockId);
+}
+
+void Workspace::flashStatus(const QString &status) {
+    setStatus(status);
+    QTimer::singleShot(4000, this, [this, status] {
+        if (m_status == status)
+            setStatus(QString());
+    });
 }
 
 void Workspace::setStatus(const QString &status) {
@@ -660,10 +695,27 @@ void Workspace::perform(const QString &id, const QVariant &arg) {
     const QJsonObject window = activeWindowObject();
     auto call = [this](const QString &method, QJsonObject payload) {
         m_rex->call(method, payload, [this, method](const QJsonObject &, const QJsonObject &error) {
-            if (!error.isEmpty())
-                setStatus(tr("%1 failed: %2").arg(method, error.value("message").toString()));
+            // A target that's already gone, such as a tab closed twice in a
+            // row, ended up the way the action wanted.
+            // A key pressed twice before the first change reached orex, such
+            // as floating a pane that is already floating, isn't worth a word.
+            const QString message = error.value("message").toString();
+            if (!error.isEmpty() && error.value("code").toString() != "not_found" &&
+                !message.contains("already in") && !message.contains("no windows") &&
+                !message.contains("no longer attached"))
+                flashStatus(tr("%1 failed: %2").arg(method, error.value("message").toString()));
         });
     };
+    // Pane and tab actions need a tab; a session can be left with none.
+    const bool noTabs = m_view.value("windows").toArray().isEmpty() || activeWindow().isEmpty();
+    if ((id.startsWith("pane.") || (id.startsWith("tab.") && id != "tab.new")) && noTabs) {
+        flashStatus(tr("This session has no tabs. Press Ctrl+Shift+T for a new one."));
+        return;
+    }
+    if (id.startsWith("pane.") && id != "pane.new_floating" && block.isEmpty()) {
+        flashStatus(tr("This tab has no focused pane."));
+        return;
+    }
 
     if (id == "session.new") {
         const QJsonObject shell{{"block", QJsonObject{{"flavor", "com.superlogical.terminal.shell"}}}};
@@ -784,9 +836,13 @@ void Workspace::dragLayer(const QString &layerId, qreal x, qreal y) {
     if (it == m_layerPanes.constEnd())
         return;
     const QPointF offset = QPointF(x, y) - it->frame;
-    for (const auto &[blockId, origin] : it->panes)
-        if (TerminalItem *terminal = m_panes.value(blockId).terminal)
-            terminal->setPosition(origin + offset);
+    for (const auto &[blockId, origin] : it->panes) {
+        const Pane pane = m_panes.value(blockId);
+        if (pane.terminal)
+            pane.terminal->setPosition(origin + offset + QPointF(kBorder, kBorder));
+        if (pane.border)
+            pane.border->setPosition(origin + offset);
+    }
 }
 
 void Workspace::raiseLayer(const QString &layerId) {
