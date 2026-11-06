@@ -57,6 +57,18 @@ int main(int argc, char *argv[]) {
         QTimer::singleShot(step.section(':', 0, 0).toInt(), [window, action = step.section(':', 1)] {
             QMetaObject::invokeMethod(window, "run", Q_ARG(QVariant, action));
         });
+    // Selects a session by "ms:host label/session label", to open a session
+    // on a particular host without stepping through others.
+    for (const QString &step : qEnvironmentVariable("OREX_SELECT").split(',', Qt::SkipEmptyParts))
+        QTimer::singleShot(step.section(':', 0, 0).toInt(), [&workspace, what = step.section(':', 1)] {
+            for (const QVariant &v : workspace.sessions()) {
+                const QVariantMap s = v.toMap();
+                if (s.value("host_label").toString() + "/" + s.value("label").toString() == what) {
+                    qInfo() << "select" << what;
+                    workspace.selectSession(s.value("session_id").toString());
+                }
+            }
+        });
     for (int i = 1; i <= shots; ++i)
         QTimer::singleShot(i * 2000, [=, &workspace, &app] {
             window->grabWindow().save(QStringLiteral("%1-%2.png").arg(prefix).arg(i));

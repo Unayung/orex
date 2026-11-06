@@ -30,17 +30,6 @@ static void collectBlocks(const QJsonObject &node, QList<QPair<QString, QRectF>>
 }
 
 Workspace::Workspace(Theme *theme, QObject *parent) : QObject(parent), m_theme(theme) {
-    connect(&m_rex, &RexClient::serverEvent, this, &Workspace::onEvent);
-    // A closed control connection usually means the Rex server restarted,
-    // for example after an update. Keep trying, and come back to the same
-    // session once it's up.
-    m_reconnect.setSingleShot(true);
-    m_reconnect.setInterval(2000);
-    connect(&m_reconnect, &QTimer::timeout, this, &Workspace::reconnect);
-    connect(&m_rex, &RexClient::closed, this, [this](const QString &reason) {
-        setStatus(tr("Disconnected from Rex (%1). Reconnecting…").arg(reason));
-        m_reconnect.start();
-    });
     connect(m_theme, &Theme::changed, this, [this] {
         for (Pane &pane : m_panes) {
             if (pane.stream)
@@ -49,55 +38,184 @@ Workspace::Workspace(Theme *theme, QObject *parent) : QObject(parent), m_theme(t
                 pane.terminal->setSelectionColor(QColor(m_theme->selection()));
         }
     });
-    connect(&m_rex, &RexClient::ready, this, [this] {
-        // Session-wide events keep the session list current; block output
-        // comes over data connections instead, so block events aren't needed.
-        m_rex.call("session.attach_all", {{"event_scope", "session"}},
-                   [this](const QJsonObject &result, const QJsonObject &error) {
-            if (!error.isEmpty())
-                return setStatus(error.value("message").toString());
-            QVariantList sessions;
-            for (const QJsonValue &s : result.value("sessions").toArray())
-                sessions.append(s.toObject().toVariantMap());
-            m_sessions = sessions;
-            emit sessionsChanged();
-            QString pick;
-            for (const QVariant &s : std::as_const(m_sessions)) {
-                const QVariantMap map = s.toMap();
-                const QString id = map.value("session_id").toString();
-                if (m_wanted.isEmpty() || map.value("label").toString() == m_wanted || id.endsWith(m_wanted)) {
-                    pick = id;
-                    break;
-                }
-            }
-            if (!pick.isEmpty())
-                selectSession(pick);
-            else
-                setStatus(m_sessions.isEmpty() ? tr("The Rex server has no sessions. Start one with “rex new”.")
-                                               : tr("No Rex session matches “%1”.").arg(m_wanted));
-        });
-    });
 }
 
-Workspace::~Workspace() { closeAllPanes(); }
+Workspace::~Workspace() {
+    closeAllPanes();
+    qDeleteAll(m_hosts);
+}
 
 void Workspace::start(const QString &wanted) {
     m_wanted = wanted;
     setStatus(tr("Connecting to Rex…"));
-    m_rex.open(RexClient::defaultSocketPath());
+    addHost("local", tr("This machine"), RexClient::defaultServer());
 }
 
-void Workspace::reconnect() {
-    // Every stream and attachment died with the connection, so rebuild them,
-    // returning to the session that was on screen.
-    closeAllPanes();
+Workspace::Host *Workspace::addHost(const QString &key, const QString &label, const QString &endpoint) {
+    auto *host = new Host{key, label, endpoint, new RexClient(this), new QTimer(this), {}, tr("Connecting…")};
+    m_hosts.append(host);
+    // A closed control connection means the server restarted or the machine
+    // went away (a Mac asleep). Keep trying, gently for remote machines.
+    host->retry->setSingleShot(true);
+    host->retry->setInterval(key == "local" ? 2000 : 15000);
+    connect(host->retry, &QTimer::timeout, this, [host] { host->rex->open(host->endpoint); });
+
+    connect(host->rex, &RexClient::serverEvent, this, [this, host](const QJsonObject &event) { onEvent(host, event); });
+    connect(host->rex, &RexClient::closed, this, [this, host](const QString &reason) {
+        host->sessions.clear();
+        host->problem = reason;
+        rebuildSessions();
+        if (host == m_host) {
+            // Every stream and attachment died with the connection; come
+            // back to the same session once the host is reachable again.
+            closeAllPanes();
+            if (!m_sessionId.isEmpty())
+                m_wanted = m_sessionId;
+            m_sessionId.clear();
+            m_view = {};
+            m_revision = -1;
+            emit currentSessionChanged();
+            emit viewChanged();
+            setStatus(tr("Disconnected from %1 (%2). Reconnecting…").arg(host->label, reason));
+        }
+        host->retry->start();
+    });
+    connect(host->rex, &RexClient::ready, this, [this, host] {
+        host->problem.clear();
+        // Session-wide events keep the session list current; block output
+        // comes over data connections instead, so block events aren't needed.
+        host->rex->call("session.attach_all", {{"event_scope", "session"}},
+                        [this, host](const QJsonObject &result, const QJsonObject &error) {
+            if (!error.isEmpty()) {
+                host->problem = error.value("message").toString();
+                return rebuildSessions();
+            }
+            setSessions(host, result.value("sessions").toArray());
+            pickSession(host);
+        });
+        // The local server keeps the list of other hosts, the same list
+        // `rex hosts` shows.
+        if (host->key == "local")
+            refreshHosts();
+    });
+    rebuildSessions();
+    host->rex->open(endpoint);
+    return host;
+}
+
+void Workspace::refreshHosts() {
+    Host *local = m_hosts.value(0);
+    if (!local)
+        return;
+    local->rex->call("hosts.list", {}, [this](const QJsonObject &result, const QJsonObject &error) {
+        if (!error.isEmpty())
+            return;
+        QSet<QString> listed;
+        for (const QJsonValue &value : result.value("hosts").toArray()) {
+            const QJsonObject h = value.toObject();
+            const QString key = h.value("id").toString();
+            const QString endpoint = h.value("endpoints").toArray().first().toString();
+            listed.insert(key);
+            Host *known = nullptr;
+            for (Host *host : std::as_const(m_hosts))
+                if (host->key == key)
+                    known = host;
+            if (!known) {
+                addHost(key, h.value("label").toString(), endpoint);
+            } else if (known->label != h.value("label").toString()) {
+                known->label = h.value("label").toString();
+                rebuildSessions();
+            }
+        }
+        // Hosts removed with `rex hosts remove` go away here too.
+        for (int i = m_hosts.size() - 1; i > 0; --i) {
+            Host *host = m_hosts.at(i);
+            if (listed.contains(host->key))
+                continue;
+            if (host == m_host) {
+                closeAllPanes();
+                m_host = nullptr;
+                m_rex = nullptr;
+                m_sessionId.clear();
+                m_view = {};
+                emit currentSessionChanged();
+                emit viewChanged();
+            }
+            m_hosts.removeAt(i);
+            host->retry->stop();
+            host->rex->deleteLater();
+            host->retry->deleteLater();
+            delete host;
+        }
+        rebuildSessions();
+    });
+}
+
+void Workspace::setSessions(Host *host, const QJsonArray &sessions) {
+    host->sessions.clear();
+    for (const QJsonValue &s : sessions)
+        host->sessions.append(s.toObject().toVariantMap());
+    rebuildSessions();
+    // A session orex just created, or the one on screen before a reconnect,
+    // is selected as soon as it shows up.
+    for (const QVariant &s : std::as_const(host->sessions))
+        if (!m_wanted.isEmpty() && s.toMap().value("session_id").toString() == m_wanted)
+            return selectSession(m_wanted);
+}
+
+void Workspace::rebuildSessions() {
+    // One flat list for the sidebar, grouped by host_label. A host without
+    // sessions gets a placeholder row that says why.
+    QVariantList list;
+    for (const Host *host : std::as_const(m_hosts)) {
+        for (const QVariant &s : host->sessions) {
+            QVariantMap row = s.toMap();
+            row.insert("host", host->key);
+            row.insert("host_label", host->label);
+            list.append(row);
+        }
+        if (host->sessions.isEmpty()) {
+            // The full reason goes in a tooltip; the row stays short.
+            const QString label = host->problem.isEmpty() ? tr("No sessions")
+                                : host->problem == tr("Connecting…") ? host->problem
+                                : tr("Unreachable, retrying…");
+            list.append(QVariantMap{{"session_id", ""}, {"host", host->key}, {"host_label", host->label},
+                                    {"label", label}, {"detail", host->problem}, {"placeholder", true}});
+        }
+    }
+    if (list != m_sessions) {
+        m_sessions = list;
+        emit sessionsChanged();
+    }
+}
+
+void Workspace::pickSession(Host *host) {
     if (!m_sessionId.isEmpty())
-        m_wanted = m_sessionId;
-    m_sessionId.clear();
-    m_view = {};
-    m_revision = -1;
-    emit viewChanged();
-    m_rex.open(RexClient::defaultSocketPath());
+        return;
+    // `wanted` is a label or ID suffix from the command line, or the session
+    // that was on screen before a reconnect. Without one, start on the first
+    // session of this machine.
+    for (const QVariant &s : std::as_const(host->sessions)) {
+        const QVariantMap map = s.toMap();
+        const QString id = map.value("session_id").toString();
+        if ((m_wanted.isEmpty() && host->key == "local") || map.value("label").toString() == m_wanted ||
+            (!m_wanted.isEmpty() && id.endsWith(m_wanted)))
+            return selectSession(id);
+    }
+    if (host->key == "local") {
+        if (host->sessions.isEmpty())
+            setStatus(tr("This machine has no Rex sessions. Start one with Ctrl+Shift+N."));
+        else if (!m_wanted.isEmpty())
+            setStatus(tr("No session here matches “%1” yet.").arg(m_wanted));
+    }
+}
+
+Workspace::Host *Workspace::hostOf(const QString &sessionId) const {
+    for (Host *host : m_hosts)
+        for (const QVariant &s : host->sessions)
+            if (s.toMap().value("session_id").toString() == sessionId)
+                return host;
+    return nullptr;
 }
 
 void Workspace::setPaneArea(QQuickItem *area) {
@@ -128,18 +246,22 @@ QVariantList Workspace::windows() const {
 }
 
 void Workspace::selectSession(const QString &sessionId) {
-    if (sessionId == m_sessionId)
+    Host *host = hostOf(sessionId);
+    if (!host || sessionId == m_sessionId)
         return;
     closeAllPanes();
-    if (!m_sessionId.isEmpty())
-        m_rex.call("session.detach", {{"session_id", m_sessionId}});
+    if (m_rex && !m_sessionId.isEmpty())
+        m_rex->call("session.detach", {{"session_id", m_sessionId}});
+    m_host = host;
+    m_rex = host->rex;
     m_sessionId = sessionId;
+    m_wanted.clear();
     m_view = {};
     m_revision = -1;
     emit currentSessionChanged();
     emit viewChanged();
-    m_rex.call("session.attach", {{"session_id", sessionId}},
-               [this, sessionId](const QJsonObject &view, const QJsonObject &error) {
+    m_rex->call("session.attach", {{"session_id", sessionId}},
+                [this, sessionId](const QJsonObject &view, const QJsonObject &error) {
         if (sessionId != m_sessionId)
             return;
         if (!error.isEmpty())
@@ -150,9 +272,9 @@ void Workspace::selectSession(const QString &sessionId) {
 }
 
 void Workspace::selectWindow(const QString &windowId) {
-    if (m_sessionId.isEmpty() || windowId == activeWindow())
+    if (!m_rex || m_sessionId.isEmpty() || windowId == activeWindow())
         return;
-    m_rex.call("session.focus_window", {{"session_id", m_sessionId}, {"window_id", windowId}});
+    m_rex->call("session.focus_window", {{"session_id", m_sessionId}, {"window_id", windowId}});
 }
 
 void Workspace::stepWindow(int delta) {
@@ -166,25 +288,29 @@ void Workspace::stepWindow(int delta) {
 }
 
 void Workspace::stepSession(int delta) {
-    if (m_sessions.isEmpty())
+    QStringList ids;
+    for (const QVariant &s : std::as_const(m_sessions))
+        if (!s.toMap().value("placeholder").toBool())
+            ids.append(s.toMap().value("session_id").toString());
+    if (ids.isEmpty())
         return;
-    int i = 0;
-    while (i < m_sessions.size() && m_sessions.at(i).toMap().value("session_id").toString() != m_sessionId)
-        ++i;
-    const int n = m_sessions.size();
-    selectSession(m_sessions.at(((i + delta) % n + n) % n).toMap().value("session_id").toString());
+    const int n = ids.size();
+    const int i = qMax(0, ids.indexOf(m_sessionId));
+    selectSession(ids.at(((i + delta) % n + n) % n));
 }
 
 void Workspace::shutdown() { closeAllPanes(); }
 
-void Workspace::onEvent(const QJsonObject &event) {
+void Workspace::onEvent(Host *host, const QJsonObject &event) {
     const QString type = event.value("type").toString();
     const QJsonObject payload = event.value("payload").toObject();
-    if (type == "session_created" || type == "session_moved") {
-        refreshSessions();
+    if (type == "hosts_changed" && host->key == "local") {
+        refreshHosts();
+    } else if (type == "session_created" || type == "session_moved") {
+        refreshSessions(host);
     } else if (type == "session_destroyed") {
-        refreshSessions();
-        if (payload.value("session_id").toString() == m_sessionId) {
+        refreshSessions(host);
+        if (host == m_host && payload.value("session_id").toString() == m_sessionId) {
             closeAllPanes();
             m_sessionId.clear();
             m_view = {};
@@ -196,8 +322,9 @@ void Workspace::onEvent(const QJsonObject &event) {
         const QJsonObject inner = payload.value("event").toObject();
         const QString innerType = inner.value("type").toString();
         if (innerType == "session_label_changed") {
-            refreshSessions();
-        } else if (innerType == "session_view_changed" && payload.value("session_id").toString() == m_sessionId) {
+            refreshSessions(host);
+        } else if (innerType == "session_view_changed" && host == m_host &&
+                   payload.value("session_id").toString() == m_sessionId) {
             // Changes can arrive out of order; only a newer revision means
             // the view we hold is stale.
             if (inner.value("payload").toObject().value("revision").toInteger() > m_revision)
@@ -206,15 +333,10 @@ void Workspace::onEvent(const QJsonObject &event) {
     }
 }
 
-void Workspace::refreshSessions() {
-    m_rex.call("session.list", {}, [this](const QJsonObject &result, const QJsonObject &error) {
-        if (!error.isEmpty())
-            return;
-        QVariantList sessions;
-        for (const QJsonValue &s : result.value("sessions").toArray())
-            sessions.append(s.toObject().toVariantMap());
-        m_sessions = sessions;
-        emit sessionsChanged();
+void Workspace::refreshSessions(Host *host) {
+    host->rex->call("session.list", {}, [this, host](const QJsonObject &result, const QJsonObject &error) {
+        if (error.isEmpty())
+            setSessions(host, result.value("sessions").toArray());
     });
 }
 
@@ -226,7 +348,7 @@ void Workspace::fetchView() {
     }
     m_fetching = true;
     const QString sessionId = m_sessionId;
-    m_rex.call("session.view", {{"session_id", sessionId}},
+    m_rex->call("session.view", {{"session_id", sessionId}},
                [this, sessionId](const QJsonObject &view, const QJsonObject &error) {
         m_fetching = false;
         if (sessionId == m_sessionId && error.isEmpty())
@@ -336,14 +458,14 @@ void Workspace::layoutPanes() {
         if (!pane.stream) {
             pane.terminal = new TerminalItem(m_area);
             pane.terminal->setSelectionColor(QColor(m_theme->selection()));
-            pane.stream = new BlockStream(&m_rex, m_sessionId, blockId, pane.terminal, this);
+            pane.stream = new BlockStream(m_rex, m_sessionId, blockId, pane.terminal, this);
             pane.stream->setTheme(m_theme->terminalTheme());
             connect(pane.stream, &BlockStream::ended, this, [this](const QString &reason) {
                 setStatus(tr("A pane's stream ended: %1").arg(reason));
             });
             connect(pane.terminal, &QQuickItem::activeFocusChanged, this, [this, blockId](bool focused) {
                 if (focused && blockId != this->focusedBlock())
-                    m_rex.call("session.focus_block", {{"session_id", m_sessionId}, {"block_id", blockId}});
+                    m_rex->call("session.focus_block", {{"session_id", m_sessionId}, {"block_id", blockId}});
                 // Only a click or key in orex counts. Focus also moves when a
                 // layout change from another client arrives, and claiming then
                 // would pull the pane away from the Mac app you're using.
@@ -472,13 +594,13 @@ void Workspace::withNewShell(std::function<void(const QJsonObject &)> then) {
     const QJsonObject target{{"session_id", session}, {"block_id", block}, {"args", QJsonObject{}}};
     // The shell's own report (OSC 7) is best, but only shells set up for it
     // send one, so fall back to the directory of the program in front.
-    m_rex.call("com.superlogical.terminal.pwd", target, [this, target, then, shellIn](const QJsonObject &result, const QJsonObject &) {
+    m_rex->call("com.superlogical.terminal.pwd", target, [this, target, then, shellIn](const QJsonObject &result, const QJsonObject &) {
         QString pwd = result.value("pwd").toString();
         if (pwd.startsWith("file://"))
             pwd = QUrl(pwd).toLocalFile();
         if (!pwd.isEmpty())
             return then(shellIn(pwd));
-        m_rex.call("com.superlogical.terminal.process", target, [then, shellIn](const QJsonObject &process, const QJsonObject &) {
+        m_rex->call("com.superlogical.terminal.process", target, [then, shellIn](const QJsonObject &process, const QJsonObject &) {
             QString cwd = process.value("foreground").toObject().value("cwd").toString();
             if (cwd.isEmpty())
                 cwd = process.value("child").toObject().value("cwd").toString();
@@ -519,13 +641,16 @@ QString Workspace::neighbor(const QString &blockId, const QString &direction) co
 }
 
 void Workspace::perform(const QString &id, const QVariant &arg) {
-    if (m_sessionId.isEmpty() && id != "session.new")
+    // New sessions go to the host on screen, or this machine.
+    if (id == "session.new" && !m_rex && !m_hosts.isEmpty())
+        m_rex = m_hosts.first()->rex;
+    if (!m_rex || (m_sessionId.isEmpty() && id != "session.new"))
         return;
     const QString session = m_sessionId;
     const QString block = focusedBlock();
     const QJsonObject window = activeWindowObject();
     auto call = [this](const QString &method, QJsonObject payload) {
-        m_rex.call(method, payload, [this, method](const QJsonObject &, const QJsonObject &error) {
+        m_rex->call(method, payload, [this, method](const QJsonObject &, const QJsonObject &error) {
             if (!error.isEmpty())
                 setStatus(tr("%1 failed: %2").arg(method, error.value("message").toString()));
         });
@@ -534,10 +659,12 @@ void Workspace::perform(const QString &id, const QVariant &arg) {
     if (id == "session.new") {
         const QJsonObject shell{{"block", QJsonObject{{"flavor", "com.superlogical.terminal.shell"}}}};
         const QJsonObject firstWindow{{"layout", shell}};
-        m_rex.call("session.create", {{"initial_windows", QJsonArray{firstWindow}}},
+        m_rex->call("session.create", {{"initial_windows", QJsonArray{firstWindow}}},
                    [this](const QJsonObject &result, const QJsonObject &error) {
+            // The new session reaches the list through session_created a
+            // moment later; select it once the list has it.
             if (error.isEmpty())
-                selectSession(result.value("session_id").toString());
+                m_wanted = result.value("session_id").toString();
         });
     } else if (id == "session.next" || id == "session.previous") {
         stepSession(id == "session.next" ? 1 : -1);
@@ -632,16 +759,16 @@ void Workspace::moveLayer(const QString &layerId, qreal x, qreal y) {
         // The server refuses bounds that leave the window.
         const qreal fx = qBound(0.0, x / m_area->width(), 1.0 - bw);
         const qreal fy = qBound(0.0, y / m_area->height(), 1.0 - bh);
-        m_rex.call("session.resize_layer", {{"session_id", m_sessionId}, {"layer_id", layerId},
+        m_rex->call("session.resize_layer", {{"session_id", m_sessionId}, {"layer_id", layerId},
                                             {"bounds", QJsonArray{fx, fy, bw, bh}}});
     }
 }
 
 void Workspace::raiseLayer(const QString &layerId) {
-    m_rex.call("session.raise_layer", {{"session_id", m_sessionId}, {"layer_id", layerId}});
+    m_rex->call("session.raise_layer", {{"session_id", m_sessionId}, {"layer_id", layerId}});
 }
 
 void Workspace::setLayerMinimized(const QString &layerId, bool minimized) {
-    m_rex.call("session.set_layer_state", {{"session_id", m_sessionId}, {"layer_id", layerId},
+    m_rex->call("session.set_layer_state", {{"session_id", m_sessionId}, {"layer_id", layerId},
                                            {"state", minimized ? "minimized" : "normal"}, {"focus", !minimized}});
 }

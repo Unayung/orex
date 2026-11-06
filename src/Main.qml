@@ -63,14 +63,31 @@ ApplicationWindow {
 
             ListView {
                 anchors.fill: parent
-                anchors.topMargin: 8
+                anchors.topMargin: 4
                 model: backend.sessions
+                // Sessions grouped by the machine they run on.
+                section.property: "host_label"
+                section.delegate: Label {
+                    required property string section
+                    width: ListView.view.width
+                    topPadding: 12
+                    bottomPadding: 4
+                    leftPadding: 14
+                    text: section
+                    font.pixelSize: 11
+                    font.capitalization: Font.AllUppercase
+                    font.letterSpacing: 1
+                    opacity: 0.5
+                }
                 delegate: Rectangle {
                     required property var modelData
                     readonly property bool current: modelData.session_id === backend.currentSession
+                                                    && modelData.host === backend.currentHost
+                    readonly property bool placeholder: modelData.placeholder === true
                     width: ListView.view.width
-                    height: 36
-                    color: current ? theme.selection : (hover.hovered ? Qt.lighter(theme.background, 1.3) : "transparent")
+                    height: 34
+                    color: current ? theme.selection
+                         : (hover.hovered && !placeholder ? Qt.lighter(theme.background, 1.3) : "transparent")
 
                     Rectangle {
                         width: 3
@@ -85,10 +102,15 @@ ApplicationWindow {
                         elide: Text.ElideRight
                         text: modelData.label
                         color: theme.foreground
-                        opacity: parent.current ? 1 : 0.65
+                        font.italic: parent.placeholder
+                        font.pixelSize: parent.placeholder ? 12 : 14
+                        opacity: parent.current ? 1 : (parent.placeholder ? 0.4 : 0.65)
                     }
                     HoverHandler { id: hover }
-                    TapHandler { onTapped: backend.selectSession(modelData.session_id) }
+                    ToolTip.visible: hover.hovered && (modelData.detail ?? "").length > 0
+                    ToolTip.text: modelData.detail ?? ""
+                    ToolTip.delay: 500
+                    TapHandler { enabled: !parent.placeholder; onTapped: backend.selectSession(modelData.session_id) }
                 }
             }
         }
@@ -244,7 +266,8 @@ ApplicationWindow {
         property string mode: "actions"
         property var items: mode === "actions"
             ? backend.actions.filter(a => a.id !== "palette")
-            : backend.sessions.map(s => ({ id: s.session_id, title: s.label, shortcut: "" }))
+            : backend.sessions.filter(s => !s.placeholder)
+                .map(s => ({ id: s.session_id, title: s.label, shortcut: s.host === "local" ? "" : s.host_label }))
         readonly property var shown: items.filter(i => i.title.toLowerCase().includes(query.text.toLowerCase()))
 
         function show(m) { mode = m; query.text = ""; list.currentIndex = 0; open(); query.forceActiveFocus() }

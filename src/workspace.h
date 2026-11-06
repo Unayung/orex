@@ -1,11 +1,13 @@
 #pragma once
 
-// Everything orex shows from one Rex server: the list of sessions, the tabs
-// of the session on screen, and a terminal for each pane in the active tab.
+// Everything orex shows from the Rex servers it knows: this machine's and
+// the hosts in `rex hosts`, each with its sessions, plus the tabs of the
+// session on screen and a terminal for each pane in its active tab.
 // Terminals are made here rather than in QML, so a layout change moves and
 // resizes them instead of tearing down their streams.
 
 #include <QHash>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
 #include <QPointer>
@@ -25,6 +27,8 @@ class Workspace : public QObject {
     Q_OBJECT
     Q_PROPERTY(QVariantList sessions READ sessions NOTIFY sessionsChanged)
     Q_PROPERTY(QString currentSession READ currentSession NOTIFY currentSessionChanged)
+    // The key of the host the current session runs on; "local" is this machine.
+    Q_PROPERTY(QString currentHost READ currentHost NOTIFY currentSessionChanged)
     Q_PROPERTY(QVariantList windows READ windows NOTIFY viewChanged)
     Q_PROPERTY(QString activeWindow READ activeWindow NOTIFY viewChanged)
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
@@ -42,6 +46,7 @@ public:
 
     QVariantList sessions() const { return m_sessions; }
     QString currentSession() const { return m_sessionId; }
+    QString currentHost() const { return m_host ? m_host->key : QString(); }
     QVariantList windows() const;
     QString activeWindow() const { return m_view.value("active_window_id").toString(); }
     QString status() const { return m_status; }
@@ -79,6 +84,16 @@ signals:
     void framesChanged();
 
 private:
+    struct Host {
+        QString key;      // "local", or the host's ID in the host list
+        QString label;
+        QString endpoint;
+        RexClient *rex;
+        QTimer *retry;
+        QVariantList sessions;
+        QString problem;  // why it has no sessions to show, or empty
+    };
+
     struct Pane {
         // The pane area owns the item, and QML may delete it first when
         // the window closes, so hold it weakly.
@@ -87,8 +102,14 @@ private:
         bool started = false;
     };
 
-    void onEvent(const QJsonObject &event);
-    void refreshSessions();
+    Host *addHost(const QString &key, const QString &label, const QString &endpoint);
+    void refreshHosts();
+    void setSessions(Host *host, const QJsonArray &sessions);
+    void rebuildSessions();
+    void pickSession(Host *host);
+    Host *hostOf(const QString &sessionId) const;
+    void onEvent(Host *host, const QJsonObject &event);
+    void refreshSessions(Host *host);
     void fetchView();
     void applyView(const QJsonObject &view);
     void layoutPanes();
@@ -104,11 +125,10 @@ private:
     void closeAllPanes();
     void setStatus(const QString &status);
 
-    void reconnect();
-
     Theme *m_theme;
-    RexClient m_rex;
-    QTimer m_reconnect;
+    QList<Host *> m_hosts;    // this machine first
+    Host *m_host = nullptr;   // the host of the session on screen
+    RexClient *m_rex = nullptr; // m_host's control connection
     QString m_wanted;
     QVariantList m_sessions;
     QString m_sessionId;
