@@ -17,7 +17,11 @@ static constexpr qreal kFrame = 1;
 static constexpr qreal kTitleBar = 22;
 
 // The blocks of a layout tree with their rects, as fractions of the window.
-static void collectBlocks(const QJsonObject &node, QList<QPair<QString, QRectF>> &out) {
+void collectBlocks(const QJsonObject &node, QList<QPair<QString, QRectF>> &out) {
+    // An empty layer's layout is null, for example the tiled layer after its
+    // only pane was floated. Without this check the walk never ends.
+    if (!node.contains("block_id") && !node.contains("split"))
+        return;
     if (node.contains("block_id")) {
         const QJsonArray r = node.value("rect").toArray();
         out.append({node.value("block_id").toString(),
@@ -728,6 +732,12 @@ void Workspace::perform(const QString &id, const QVariant &arg) {
             if (!anchor.isEmpty())
                 call("session.move_block", {{"session_id", session}, {"block_id", block}, {"anchor_block_id", anchor},
                                             {"direction", "horizontal"}, {"side", "after"}});
+            else
+                // ponytail: Rex can only dock beside a pane, and the layout is
+                // empty when its only pane was floated. Filling the tab is the
+                // nearest thing; dock for real once the API takes an empty layout.
+                call("session.resize_layer", {{"session_id", session}, {"layer_id", layer.value("layer_id").toString()},
+                                              {"bounds", QJsonArray{0, 0, 1, 1}}});
         }
     } else if (id == "pane.new_floating") {
         withNewShell([=](const QJsonObject &layout) {
