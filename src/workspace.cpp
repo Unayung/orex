@@ -811,6 +811,14 @@ void Workspace::perform(const QString &id, const QVariant &arg) {
                                          {"bounds", QJsonArray{0.15, 0.12, 0.7, 0.7}}});
         };
         if (layer.value("kind").toString() == "tiled") {
+            // Rex docks a pane only beside another pane in the layout, so the
+            // layout's last pane must stay: floating it would leave nothing
+            // for any floating pane to dock back beside.
+            if (layerSize <= 1) {
+                flashStatus(tr("This is the last pane in the layout, so it stays docked. "
+                               "Split it first, or use a new floating pane."));
+                return;
+            }
             floatIt();
         } else if (!tiledAnchor.isEmpty()) {
             // Docking puts the pane back beside the first pane of the layout.
