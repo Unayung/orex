@@ -25,6 +25,7 @@ ApplicationWindow {
         else if (id === "help") help.open()
         else if (id === "sidebar.toggle") sidebar.open = !sidebar.open
         else if (id === "host.add") addHost.begin()
+        else if (id === "settings") settingsPanel.open()
         else if (id === "tab.rename") rename.ask(id, qsTr("Rename Tab"), backend.windows.find(w => w.window_id === backend.activeWindow)?.label ?? "")
         else if (id === "session.rename") rename.ask(id, qsTr("Rename Session"), backend.sessions.find(s => s.session_id === backend.currentSession)?.label ?? "")
         else backend.perform(id)
@@ -163,6 +164,19 @@ ApplicationWindow {
                     opacity: 0.5
                 }
                 ToolButton {
+                    anchors.right: hideButton.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    implicitWidth: 28
+                    implicitHeight: 28
+                    text: "⚙"
+                    font.pixelSize: 15
+                    ToolTip.text: qsTr("Settings") + "  (Ctrl+,)"
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 400
+                    onClicked: settingsPanel.open()
+                }
+                ToolButton {
+                    id: hideButton
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     implicitWidth: 28
@@ -849,6 +863,143 @@ ApplicationWindow {
             id: field
             width: parent.width
             onAccepted: rename.accept()
+        }
+    }
+
+    // Every setting in one place. Changes apply as they're made.
+    Popup {
+        id: settingsPanel
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(560, window.width - 80)
+        height: Math.min(640, window.height - 80)
+        modal: true
+        Overlay.modal: Rectangle { color: "#99000000" }
+        padding: 0
+        background: Rectangle { color: Qt.lighter(theme.background, 1.25); radius: Math.min(8, theme.radius); border.color: theme.surface }
+
+        component Heading: Label {
+            Layout.topMargin: 14
+            font.pixelSize: 12
+            font.bold: true
+            font.capitalization: Font.AllUppercase
+            font.letterSpacing: 1
+            opacity: 0.6
+        }
+        component SettingRow: RowLayout {
+            property alias text: rowLabel.text
+            property alias note: rowNote.text
+            Layout.fillWidth: true
+            spacing: 12
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 1
+                Label { id: rowLabel; Layout.fillWidth: true }
+                Label { id: rowNote; Layout.fillWidth: true; visible: text.length > 0; wrapMode: Text.Wrap; font.pixelSize: 11; opacity: 0.55 }
+            }
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 0
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 16
+                Label { text: qsTr("Settings"); font.pixelSize: 18; font.bold: true; Layout.fillWidth: true }
+                ToolButton { text: "✕"; onClicked: settingsPanel.close() }
+            }
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentWidth: availableWidth
+                clip: true
+                ColumnLayout {
+                    width: parent.width - 32
+                    x: 16
+                    spacing: 8
+
+                    Heading { text: qsTr("Appearance") }
+                    SettingRow {
+                        text: qsTr("Text size")
+                        note: qsTr("Ctrl+= and Ctrl+- change it too; Ctrl+0 goes back to 12.")
+                        SpinBox {
+                            from: 6; to: 36
+                            value: backend.fontSize
+                            editable: true
+                            onValueModified: backend.fontSize = value
+                        }
+                        Button { text: qsTr("Reset"); flat: true; onClicked: backend.fontSize = 12 }
+                    }
+                    SettingRow {
+                        text: qsTr("Session list width")
+                        note: qsTr("You can also drag the list's right edge.")
+                        SpinBox {
+                            from: 160; to: 520; stepSize: 10
+                            value: sidebar.openWidth
+                            editable: true
+                            onValueModified: sidebar.openWidth = value
+                        }
+                        Button { text: qsTr("Reset"); flat: true; onClicked: sidebar.openWidth = 200 }
+                    }
+
+                    Heading { text: qsTr("Behavior") }
+                    SettingRow {
+                        text: qsTr("Focus follows the mouse")
+                        note: qsTr("Pointing at a pane focuses it, without a click.")
+                        Switch { checked: backend.focusFollowsMouse; onToggled: backend.focusFollowsMouse = checked }
+                    }
+                    SettingRow {
+                        text: qsTr("Desktop notifications")
+                        note: qsTr("When a program needs you or finishes and you aren't looking at it.")
+                        Switch { checked: backend.desktopNotifications; onToggled: backend.desktopNotifications = checked }
+                    }
+                    SettingRow {
+                        text: qsTr("Copy selections to the clipboard")
+                        note: qsTr("Selected text always goes to the primary selection for middle-click paste.")
+                        Switch { checked: backend.copyOnSelect; onToggled: backend.copyOnSelect = checked }
+                    }
+
+                    Heading { text: qsTr("Remote hosts") }
+                    Repeater {
+                        model: backend.remoteHosts
+                        delegate: SettingRow {
+                            required property var modelData
+                            text: modelData.label
+                            note: modelData.endpoint + (modelData.connected ? "" : "  ·  " + qsTr("not connected"))
+                            Rectangle {
+                                width: 8; height: 8; radius: 4
+                                color: modelData.connected ? theme.green : theme.red
+                            }
+                            Button { text: qsTr("Remove"); flat: true; onClicked: backend.removeRemoteHost(modelData.key) }
+                        }
+                    }
+                    Label {
+                        visible: backend.remoteHosts.length === 0
+                        text: qsTr("No remote hosts.")
+                        opacity: 0.55
+                    }
+                    Button {
+                        text: qsTr("Add Remote Host…")
+                        onClicked: { settingsPanel.close(); addHost.begin() }
+                    }
+
+                    Heading { text: qsTr("Muted sessions") }
+                    Repeater {
+                        model: backend.mutedSessions
+                        delegate: SettingRow {
+                            required property var modelData
+                            text: "🔕  " + modelData.label
+                            note: modelData.host_label
+                            Button { text: qsTr("Unmute"); flat: true; onClicked: backend.unmute(modelData.key) }
+                        }
+                    }
+                    Label {
+                        visible: backend.mutedSessions.length === 0
+                        text: qsTr("No muted sessions. Mute one with the bell next to it in the list.")
+                        opacity: 0.55
+                        Layout.bottomMargin: 16
+                    }
+                }
+            }
         }
     }
 

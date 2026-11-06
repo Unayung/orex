@@ -90,6 +90,8 @@ void collectBlocks(const QJsonObject &node, QList<QPair<QString, QRectF>> &out) 
 Workspace::Workspace(Theme *theme, QObject *parent) : QObject(parent), m_theme(theme) {
     m_focusFollowsMouse = QSettings().value("focusFollowsMouse", false).toBool();
     m_fontSize = QSettings().value("fontSize", 12.0).toDouble();
+    m_desktopNotifications = QSettings().value("desktopNotifications", true).toBool();
+    m_copyOnSelect = QSettings().value("copyOnSelect", true).toBool();
     for (const QString &key : QSettings().value("mutedSessions").toStringList())
         m_muted.insert(key);
     connect(m_theme, &Theme::changed, this, [this] {
@@ -505,6 +507,7 @@ void Workspace::toggleMute(const QString &hostKey, const QString &sessionId) {
         m_muted.remove(key);
     QSettings().setValue("mutedSessions", QStringList(m_muted.cbegin(), m_muted.cend()));
     rebuildSessions();
+    emit sessionsChanged();
     flashStatus(muted ? tr("Notifications muted for this session") : tr("Notifications on for this session"));
 }
 
@@ -759,6 +762,7 @@ void Workspace::layoutPanes() {
             pane.border = new PaneBorder(m_area);
             pane.terminal->setSelectionColor(QColor(m_theme->surface()));
             pane.terminal->setFontSize(m_fontSize);
+            pane.terminal->setProperty("copyOnSelect", m_copyOnSelect);
             pane.stream = new BlockStream(m_rex, m_sessionId, blockId, pane.terminal, this);
             pane.stream->setTheme(m_theme->terminalTheme());
             connect(pane.stream, &BlockStream::ended, this, [this](const QString &reason) {
@@ -884,6 +888,70 @@ void Workspace::closeAllPanes() {
         closePane(blockId);
 }
 
+void Workspace::setDesktopNotifications(bool on) {
+    if (on == m_desktopNotifications)
+        return;
+    m_desktopNotifications = on;
+    QSettings().setValue("desktopNotifications", on);
+    emit settingsChanged();
+}
+
+void Workspace::setCopyOnSelect(bool on) {
+    if (on == m_copyOnSelect)
+        return;
+    m_copyOnSelect = on;
+    QSettings().setValue("copyOnSelect", on);
+    for (const Pane &pane : std::as_const(m_panes))
+        if (pane.terminal)
+            pane.terminal->setProperty("copyOnSelect", on);
+    emit settingsChanged();
+}
+
+QVariantList Workspace::remoteHosts() const {
+    QVariantList list;
+    for (const Host *host : m_hosts)
+        if (host->key != "local")
+            list.append(QVariantMap{{"key", host->key}, {"label", host->label}, {"endpoint", host->endpoint},
+                                    {"connected", host->problem.isEmpty()}, {"problem", host->problem}});
+    return list;
+}
+
+QVariantList Workspace::mutedSessions() const {
+    QVariantList list;
+    for (const QString &key : m_muted) {
+        const QString hostKey = key.section('|', 0, 0), sessionId = key.section('|', 1);
+        QString label = sessionId.right(6), hostLabel = hostKey;
+        for (const Host *host : m_hosts)
+            if (host->key == hostKey) {
+                hostLabel = host->label;
+                for (const QVariant &s : host->sessions)
+                    if (s.toMap().value("session_id").toString() == sessionId)
+                        label = s.toMap().value("label").toString();
+            }
+        list.append(QVariantMap{{"key", key}, {"label", label}, {"host_label", hostLabel}});
+    }
+    return list;
+}
+
+void Workspace::unmute(const QString &key) {
+    if (!m_muted.remove(key))
+        return;
+    QSettings().setValue("mutedSessions", QStringList(m_muted.cbegin(), m_muted.cend()));
+    rebuildSessions();
+    emit sessionsChanged(); // the list may not change, but mutedSessions did
+}
+
+void Workspace::removeRemoteHost(const QString &hostKey) {
+    Host *local = m_hosts.value(0);
+    if (!local || hostKey == "local")
+        return;
+    // hosts_changed brings the removal back, and refreshHosts drops it.
+    local->rex->call("hosts.remove", {{"id", hostKey}}, [this](const QJsonObject &, const QJsonObject &error) {
+        if (!error.isEmpty())
+            flashStatus(tr("Couldn't remove the host: %1").arg(error.value("message").toString()));
+    });
+}
+
 void Workspace::setFontSize(qreal points) {
     points = qBound<qreal>(6, points, 36);
     if (qFuzzyCompare(points, m_fontSize))
@@ -947,7 +1015,7 @@ void Workspace::notify(Host *host, const QString &blockId, const QString &state)
         if (s.toMap().value("session_id").toString() == sessionId)
             sessionLabel = s.toMap().value("label").toString();
     // Muted sessions still show their status in orex, just never pop up.
-    if (m_muted.contains(host->key + "|" + sessionId))
+    if (!m_desktopNotifications || m_muted.contains(host->key + "|" + sessionId))
         return;
     const QString where = host->key == "local" ? sessionLabel : QStringLiteral("%1 · %2").arg(host->label, sessionLabel);
     const QString title = state == "blocked" ? tr("Needs you: %1").arg(where) : tr("Done: %1").arg(where);
@@ -1074,6 +1142,7 @@ QVariantList Workspace::actions() const {
         {"focus.follows_mouse", QT_TR_NOOP("Focus Follows Mouse: Turn On or Off"), ""},
         {"session.mute", QT_TR_NOOP("Mute or Unmute Session Notifications"), ""},
         {"host.add", QT_TR_NOOP("Add Remote Host…"), ""},
+        {"settings", QT_TR_NOOP("Settings…"), "Ctrl+,"},
         {"font.bigger", QT_TR_NOOP("Bigger Text"), "Ctrl+="},
         {"font.smaller", QT_TR_NOOP("Smaller Text"), "Ctrl+-"},
         {"font.reset", QT_TR_NOOP("Default Text Size"), "Ctrl+0"},

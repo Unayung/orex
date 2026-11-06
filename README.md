@@ -57,6 +57,13 @@ another pane: near an edge puts it on that side, the middle swaps the two.
 Panes move between the layout and floating windows the same way. Drag the
 border between two panes to resize them.
 
+## Settings
+
+The gear at the top of the session list (or Ctrl+,) opens every setting: text
+size, list width, focus following the mouse, desktop notifications, copying
+selections to the clipboard, remote hosts, and muted sessions. Changes apply
+right away.
+
 ## Build
 
 orex needs Qt 6 (base, declarative, wayland) and the `ghostty` package, which

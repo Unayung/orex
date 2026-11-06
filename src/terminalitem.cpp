@@ -1265,7 +1265,8 @@ void TerminalItem::mouseReleaseEvent(QMouseEvent *event)
     // selection, like Ghostty with copy-on-select = clipboard: paste it with
     // Ctrl+V elsewhere, or with the middle button.
     d->copySelection(QClipboard::Selection);
-    d->copySelection(QClipboard::Clipboard);
+    if (m_copyOnSelect)
+        d->copySelection(QClipboard::Clipboard);
 }
 
 // Qt sends this after the second press of a double click, which the gesture

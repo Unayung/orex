@@ -20,6 +20,9 @@ class TerminalItem : public QQuickPaintedItem {
     Q_PROPERTY(QColor selectionColor READ selectionColor WRITE setSelectionColor NOTIFY selectionColorChanged)
     // In points. Changing it refits the grid, which resizes the pty.
     Q_PROPERTY(qreal fontSize READ fontSize WRITE setFontSize NOTIFY fontSizeChanged)
+    // Whether a finished selection also goes to the clipboard; it always goes
+    // to the primary selection.
+    Q_PROPERTY(bool copyOnSelect MEMBER m_copyOnSelect)
 
 public:
     explicit TerminalItem(QQuickItem *parent = nullptr);
@@ -88,6 +91,7 @@ protected:
     void wheelEvent(QWheelEvent *event) override;
 
 private:
+    bool m_copyOnSelect = true;
     struct Private;
     Private *d;
 };

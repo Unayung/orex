@@ -53,7 +53,15 @@ class Workspace : public QObject {
     // Whether pointing at a pane focuses it, without a click. Remembered.
     Q_PROPERTY(bool focusFollowsMouse READ focusFollowsMouse WRITE setFocusFollowsMouse NOTIFY focusFollowsMouseChanged)
     // The terminals' font size in points, for every pane. Remembered.
-    Q_PROPERTY(qreal fontSize READ fontSize NOTIFY fontSizeChanged)
+    Q_PROPERTY(qreal fontSize READ fontSize WRITE setFontSize NOTIFY fontSizeChanged)
+    // Desktop notifications for programs that need you or finish. Remembered.
+    Q_PROPERTY(bool desktopNotifications READ desktopNotifications WRITE setDesktopNotifications NOTIFY settingsChanged)
+    // Whether a selection in a pane also goes to the clipboard. Remembered.
+    Q_PROPERTY(bool copyOnSelect READ copyOnSelect WRITE setCopyOnSelect NOTIFY settingsChanged)
+    // For the settings panel: the other machines (key, label, endpoint,
+    // connected, problem), and the muted sessions (key, label, host_label).
+    Q_PROPERTY(QVariantList remoteHosts READ remoteHosts NOTIFY sessionsChanged)
+    Q_PROPERTY(QVariantList mutedSessions READ mutedSessions NOTIFY sessionsChanged)
 
 public:
     explicit Workspace(Theme *theme, QObject *parent = nullptr);
@@ -72,6 +80,16 @@ public:
     QVariantList actions() const;
     bool focusFollowsMouse() const { return m_focusFollowsMouse; }
     qreal fontSize() const { return m_fontSize; }
+    bool desktopNotifications() const { return m_desktopNotifications; }
+    void setDesktopNotifications(bool on);
+    bool copyOnSelect() const { return m_copyOnSelect; }
+    void setCopyOnSelect(bool on);
+    QVariantList remoteHosts() const;
+    QVariantList mutedSessions() const;
+    // Removes a host from this machine's host list, as `rex hosts remove`.
+    Q_INVOKABLE void removeRemoteHost(const QString &hostKey);
+    // Unmutes by the key mutedSessions gives, for sessions not listed now.
+    Q_INVOKABLE void unmute(const QString &key);
     void setFontSize(qreal points);
     void setFocusFollowsMouse(bool on);
 
@@ -128,6 +146,7 @@ signals:
     void paneSlotsChanged();
     void focusFollowsMouseChanged();
     void fontSizeChanged();
+    void settingsChanged();
     void hostAddFinished(bool ok, const QString &message);
     // A right click on a pane: where (pixels of the pane area), and what the
     // menu should offer.
@@ -221,6 +240,8 @@ private:
     QHash<QString, QString> m_agents;
     bool m_focusFollowsMouse = false;
     qreal m_fontSize = 12;
+    bool m_desktopNotifications = true;
+    bool m_copyOnSelect = true;
     // A pane to focus once the session being selected is attached.
     QString m_pendingFocus;
     QString m_pendingTab;
