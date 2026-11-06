@@ -168,8 +168,17 @@ ApplicationWindow {
                     anchors.verticalCenter: parent.verticalCenter
                     implicitWidth: 28
                     implicitHeight: 28
-                    text: "⚙"
-                    font.pixelSize: 15
+                    // The plain gear from a symbol font, centered like ‹: the
+                    // color emoji sits on its own baseline and wouldn't line up.
+                    contentItem: Label {
+                        text: "\u2699"
+                        font.family: "Noto Sans Symbols"
+                        font.pixelSize: 16
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        color: theme.foreground
+                        opacity: 0.85
+                    }
                     ToolTip.text: qsTr("Settings") + "  (Ctrl+,)"
                     ToolTip.visible: hovered
                     ToolTip.delay: 400
@@ -353,7 +362,13 @@ ApplicationWindow {
                         visible: row.isSession && (muted || hover.hovered)
                         anchors.right: parent.right
                         anchors.rightMargin: 8
-                        y: 15 - height / 2
+                        // Centered on the status dot's line, in a box exactly
+                        // the emoji's size: the emoji font's own line height
+                        // would otherwise push it off the dot.
+                        anchors.verticalCenter: dot.verticalCenter
+                        anchors.verticalCenterOffset: 1 // the emoji sits high in its box
+                        height: 13
+                        verticalAlignment: Text.AlignVCenter
                         text: muted ? "🔕" : "🔔"
                         font.family: "Noto Color Emoji"
                         font.pixelSize: 12
