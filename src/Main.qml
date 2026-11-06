@@ -339,7 +339,9 @@ ApplicationWindow {
                             radius: height / 2
                             x: Math.round(modelData.x + modelData.width / 2 - width / 2)
                             y: Math.round(modelData.y - height / 2 + 1)
-                            z: modelData.z + 0.7
+                            // Above the divider it sits on, so grabbing the grip
+                            // moves the pane and the rest of the line resizes.
+                            z: modelData.z + 0.9
                             color: lit ? Material.accent : Qt.lighter(theme.selection, 1.7)
                             border.width: 1
                             border.color: lit ? Material.accent : Qt.lighter(theme.selection, 2.4)
@@ -366,6 +368,56 @@ ApplicationWindow {
                                 onCentroidChanged: if (active) paneArea.trackDrop(handle.modelData.block_id,
                                                                                  handle.mapToItem(paneArea, centroid.position))
                                 onActiveChanged: if (!active) paneArea.finishDrop()
+                            }
+                        }
+                    }
+
+                    // The borders between split panes: drag one to give either
+                    // side more room. A line shows where it will go, and the
+                    // server hears about it once, on release.
+                    Repeater {
+                        model: backend.dividers
+                        delegate: Item {
+                            id: divider
+                            required property var modelData
+                            readonly property bool vertical: modelData.vertical
+                            property real dragAt: modelData.at
+                            x: vertical ? Math.round(modelData.at - 4) : modelData.from
+                            y: vertical ? modelData.from : Math.round(modelData.at - 4)
+                            width: vertical ? 8 : modelData.length
+                            height: vertical ? modelData.length : 8
+                            z: modelData.z
+
+                            HoverHandler {
+                                id: borderHover
+                                cursorShape: divider.vertical ? Qt.SplitHCursor : Qt.SplitVCursor
+                            }
+                            DragHandler {
+                                id: borderDrag
+                                target: null
+                                xAxis.enabled: divider.vertical
+                                yAxis.enabled: !divider.vertical
+                                onCentroidChanged: if (active) {
+                                    const p = divider.mapToItem(paneArea, centroid.position)
+                                    const lo = divider.modelData.start + divider.modelData.size * 0.1
+                                    const hi = divider.modelData.start + divider.modelData.size * 0.9
+                                    divider.dragAt = Math.max(lo, Math.min(hi, divider.vertical ? p.x : p.y))
+                                }
+                                onActiveChanged: if (!active) {
+                                    backend.resizeSplit(divider.modelData.before, divider.modelData.after, divider.vertical,
+                                                        (divider.dragAt - divider.modelData.start) / divider.modelData.size)
+                                }
+                            }
+                            // Hover shows the border is grabbable; a drag shows
+                            // where it's going.
+                            Rectangle {
+                                visible: borderHover.hovered || borderDrag.active
+                                color: Material.accent
+                                opacity: borderDrag.active ? 1 : 0.6
+                                x: divider.vertical ? (borderDrag.active ? divider.dragAt - divider.x : 4) - 1 : 0
+                                y: divider.vertical ? 0 : (borderDrag.active ? divider.dragAt - divider.y : 4) - 1
+                                width: divider.vertical ? 2 : parent.width
+                                height: divider.vertical ? parent.height : 2
                             }
                         }
                     }

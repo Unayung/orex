@@ -42,6 +42,11 @@ class Workspace : public QObject {
     // Every visible pane's slot, for drag handles and drop targets:
     // block_id, x, y, width, height (pixels of the pane area), z, floating.
     Q_PROPERTY(QVariantList paneSlots READ paneSlots NOTIFY paneSlotsChanged)
+    // Every split's divider, for dragging it: vertical (a side-by-side
+    // split's line), the line's position and length, the split's extent along
+    // its axis (start, size, all pixels of the pane area), z, and the two
+    // blocks that name the split for session.resize_pane.
+    Q_PROPERTY(QVariantList dividers READ dividers NOTIFY paneSlotsChanged)
     // Every action orex offers: id, title, shortcut. The palette lists them.
     Q_PROPERTY(QVariantList actions READ actions CONSTANT)
     // Whether pointing at a pane focuses it, without a click. Remembered.
@@ -60,6 +65,7 @@ public:
     QVariantList frames() const { return m_frames; }
     QVariantList minimized() const { return m_minimized; }
     QVariantList paneSlots() const { return m_paneSlots; }
+    QVariantList dividers() const { return m_dividers; }
     QVariantList actions() const;
     bool focusFollowsMouse() const { return m_focusFollowsMouse; }
     void setFocusFollowsMouse(bool on);
@@ -92,6 +98,9 @@ public:
     // Drops pane `blockId` on `targetId`: "left", "right", "up" or "down"
     // splits the target and puts the pane on that side; "center" swaps them.
     Q_INVOKABLE void dropPane(const QString &blockId, const QString &targetId, const QString &zone);
+    // Moves the border of the split between `beforeBlock` and `afterBlock`
+    // so the before side gets `ratio` of the space.
+    Q_INVOKABLE void resizeSplit(const QString &beforeBlock, const QString &afterBlock, bool sideBySide, qreal ratio);
     Q_INVOKABLE void setLayerMinimized(const QString &layerId, bool minimized);
 
 signals:
@@ -170,7 +179,7 @@ private:
     QPointer<QQuickItem> m_area;
     QHash<QString, Pane> m_panes;
     QString m_status;
-    QVariantList m_frames, m_minimized, m_paneSlots;
+    QVariantList m_frames, m_minimized, m_paneSlots, m_dividers;
     // What each pane's program says: its title, and its status from OSC 7501
     // (idle, working, done, blocked), by block ID.
     QHash<QString, QString> m_titles, m_programStatus;

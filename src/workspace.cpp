@@ -42,6 +42,28 @@ static QRectF withGaps(const QRectF &px, const QRectF &local) {
     return px.adjusted(left, top, -right, -bottom);
 }
 
+// A layout tree's first block, which names a side of a split.
+static QString firstBlock(const QJsonObject &node) {
+    if (node.contains("block_id"))
+        return node.value("block_id").toString();
+    return firstBlock(node.value("split").toObject().value("before").toObject());
+}
+
+struct Split { QRectF rect; bool sideBySide; qreal ratio; QString before, after; };
+
+// Every split of a layout tree, with its rect as fractions of the window.
+static void collectSplits(const QJsonObject &node, QList<Split> &out) {
+    if (!node.contains("split"))
+        return;
+    const QJsonObject split = node.value("split").toObject();
+    const QJsonArray r = node.value("rect").toArray();
+    out.append({QRectF(r.at(0).toDouble(), r.at(1).toDouble(), r.at(2).toDouble(), r.at(3).toDouble()),
+                split.value("direction").toString() != "vertical", split.value("ratio").toDouble(0.5),
+                firstBlock(split.value("before").toObject()), firstBlock(split.value("after").toObject())});
+    collectSplits(split.value("before").toObject(), out);
+    collectSplits(split.value("after").toObject(), out);
+}
+
 // The blocks of a layout tree with their rects, as fractions of the window.
 void collectBlocks(const QJsonObject &node, QList<QPair<QString, QRectF>> &out) {
     // An empty layer's layout is null, for example the tiled layer after its
@@ -533,9 +555,25 @@ void Workspace::layoutPanes() {
     // order. Layers come back to front, the tiled one first.
     struct Place { QString blockId; QRectF px; qreal z; };
     QList<Place> places;
-    QVariantList frames, minimized;
+    QVariantList frames, minimized, dividers;
     m_placed.clear();
     m_layerPanes.clear();
+    // A split's divider in pixels: `toPx` maps window fractions into the
+    // layer's area, which differs for floating layers.
+    auto addDividers = [&](const QJsonObject &layout, std::function<QRectF(const QRectF &)> toPx, qreal z) {
+        QList<Split> splits;
+        collectSplits(layout, splits);
+        for (const Split &sp : std::as_const(splits)) {
+            const QRectF px = toPx(sp.rect);
+            const qreal at = sp.sideBySide ? px.x() + px.width() * sp.ratio : px.y() + px.height() * sp.ratio;
+            dividers.append(QVariantMap{{"vertical", sp.sideBySide}, {"at", at},
+                                        {"from", sp.sideBySide ? px.y() : px.x()},
+                                        {"length", sp.sideBySide ? px.height() : px.width()},
+                                        {"start", sp.sideBySide ? px.x() : px.y()},
+                                        {"size", sp.sideBySide ? px.width() : px.height()},
+                                        {"z", z}, {"before", sp.before}, {"after", sp.after}});
+        }
+    };
 
     const QString zoomed = active.value("zoomed_block_id").toString();
     if (!zoomed.isEmpty()) {
@@ -548,6 +586,9 @@ void Workspace::layoutPanes() {
             QList<QPair<QString, QRectF>> blocks;
             collectBlocks(layer.value("layout").toObject(), blocks);
             if (layer.value("kind").toString() == "tiled") {
+                addDividers(layer.value("layout").toObject(), [w, h](const QRectF &r) {
+                    return QRectF(r.x() * w, r.y() * h, r.width() * w, r.height() * h);
+                }, 0.8);
                 for (const auto &[blockId, r] : std::as_const(blocks)) {
                     places.append({blockId, withGaps(QRectF(r.x() * w, r.y() * h, r.width() * w, r.height() * h), r), 0});
                     m_placed.append({blockId, r});
@@ -567,6 +608,11 @@ void Workspace::layoutPanes() {
             const QRectF bounds(b.at(0).toDouble(), b.at(1).toDouble(), b.at(2).toDouble(), b.at(3).toDouble());
             const QRectF frame = snapped(QRectF(bounds.x() * w, bounds.y() * h, bounds.width() * w, bounds.height() * h));
             const QRectF inner = frame.adjusted(kFrame, kTitleBar, -kFrame, -kFrame);
+            addDividers(layer.value("layout").toObject(), [bounds, inner](const QRectF &r) {
+                return QRectF(inner.x() + (r.x() - bounds.x()) / bounds.width() * inner.width(),
+                              inner.y() + (r.y() - bounds.y()) / bounds.height() * inner.height(),
+                              r.width() / bounds.width() * inner.width(), r.height() / bounds.height() * inner.height());
+            }, index * 10.0 + 1.8);
             bool hasFocus = false;
             DraggedLayer &dragged = m_layerPanes[layerId];
             dragged.frame = frame.topLeft();
@@ -666,8 +712,9 @@ void Workspace::layoutPanes() {
         }
     }
 
-    if (slotList != m_paneSlots) {
+    if (slotList != m_paneSlots || dividers != m_dividers) {
         m_paneSlots = slotList;
+        m_dividers = dividers;
         emit paneSlotsChanged();
     }
 
@@ -1125,6 +1172,20 @@ void Workspace::dropPane(const QString &blockId, const QString &targetId, const 
                                        {"direction", sideways ? "horizontal" : "vertical"},
                                        {"side", zone == "left" || zone == "up" ? "before" : "after"}},
                 report);
+}
+
+void Workspace::resizeSplit(const QString &beforeBlock, const QString &afterBlock, bool sideBySide, qreal ratio) {
+    if (!m_rex || beforeBlock.isEmpty() || afterBlock.isEmpty())
+        return;
+    // The server finds the innermost split with these blocks on either side.
+    m_rex->call("session.resize_pane", {{"session_id", m_sessionId}, {"before_block_id", beforeBlock},
+                                        {"after_block_id", afterBlock},
+                                        {"direction", sideBySide ? "horizontal" : "vertical"},
+                                        {"ratio", qBound(0.1, ratio, 0.9)}},
+                [this](const QJsonObject &, const QJsonObject &error) {
+        if (!error.isEmpty())
+            flashStatus(tr("Couldn't resize: %1").arg(error.value("message").toString()));
+    });
 }
 
 void Workspace::raiseLayer(const QString &layerId) {
