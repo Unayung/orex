@@ -3,7 +3,7 @@
 ![orex showing a session with tiled and floating panes, agent icons, and statuses](docs/screenshot.png)
 
 Rex on Omarchy, shortened to orex. [Rex](https://superlogical.com) keeps
-terminal sessions running on a server, and its Mac and iOS apps show them. Rex has
+terminal sessions running on a server, and its Mac app shows them. Rex has
 no Linux client yet, so orex is one for [Omarchy](https://omarchy.org): it shows
 the sessions of this machine's Rex server and of the other hosts in `rex hosts`,
 with their tabs, splits, and floating panes, and keeps them in step with whatever
