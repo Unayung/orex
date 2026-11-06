@@ -3,6 +3,7 @@
 // (rex CLI, the Mac app) can be checked without touching the desktop.
 // Usage: ui_harness <session> <out-prefix> <shots> [omarchy-current-dir]
 
+#include <QClipboard>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -137,6 +138,10 @@ int main(int argc, char *argv[]) {
                     if (t->isVisible())
                         qInfo() << "terminal at" << t->x() << t->y() << t->width() << t->height()
                                 << "scene" << t->mapToScene(QPointF(0, 0));
+            if (qEnvironmentVariableIsSet("OREX_CLIPBOARD")) {
+                const QString clip = QGuiApplication::clipboard()->text();
+                qInfo() << "clipboard" << clip.size() << "chars, starts" << clip.left(24) << "ends" << clip.right(12);
+            }
             qInfo() << "shot" << i << "windows" << workspace.windows().size() << "status" << workspace.status();
             if (i == shots) { workspace.shutdown(); QTimer::singleShot(300, &app, &QCoreApplication::quit); }
         });

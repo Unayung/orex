@@ -180,6 +180,7 @@ private:
     // Draws a pane's border for its focus and its program's status.
     void styleBorder(const QString &blockId);
     void notify(Host *host, const QString &blockId, const QString &state);
+    void clipboardWritten(Host *host, const QString &sessionId, const QString &blockId, const QJsonObject &copy);
     // Shows a status for a few seconds, for errors of single actions.
     void flashStatus(const QString &status);
 

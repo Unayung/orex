@@ -1,5 +1,6 @@
 #include "workspace.h"
 
+#include <QClipboard>
 #include <QColor>
 #include <QGuiApplication>
 #include <QJsonArray>
@@ -523,6 +524,8 @@ void Workspace::onEvent(Host *host, const QJsonObject &event) {
             if (name == "title_changed") {
                 m_titles.insert(blockId, block.value("payload").toObject().value("title").toString());
                 rebuildSessions();
+            } else if (name == "clipboard_written") {
+                clipboardWritten(host, payload.value("session_id").toString(), blockId, block.value("payload").toObject());
             } else if (name == "program_status_changed") {
                 const QString now = block.value("payload").toObject().value("record").toObject().value("state").toString();
                 programStatusChanged(host, blockId, m_programStatus.value(blockId), now);
@@ -879,6 +882,45 @@ void Workspace::notify(Host *host, const QString &blockId, const QString &state)
     });
     process->start("notify-send", {"--app-name=orex", "--icon=orex", "--wait", "--action=open=" + tr("Open"),
                                    state == "blocked" ? "--urgency=critical" : "--urgency=normal", title, body});
+}
+
+void Workspace::clipboardWritten(Host *host, const QString &sessionId, const QString &blockId, const QJsonObject &copy) {
+    // A program copied with OSC 52, such as Claude Code copying what you
+    // selected in it. Only orex can put it on this machine's clipboard. Only
+    // panes on screen may, so a background session or another machine can't
+    // quietly replace what you copied.
+    if (host != m_host || sessionId != m_sessionId || !m_panes.contains(blockId))
+        return;
+    auto put = [this](const QString &text) {
+        QGuiApplication::clipboard()->setText(text, QClipboard::Clipboard);
+        if (QGuiApplication::clipboard()->supportsSelection())
+            QGuiApplication::clipboard()->setText(text, QClipboard::Selection);
+        flashStatus(text.size() == 1 ? tr("Copied 1 character") : tr("Copied %1 characters").arg(text.size()));
+    };
+    if (copy.contains("text"))
+        return put(copy.value("text").toString());
+    if (copy.value("bytes").toInteger() <= 0 || !copy.contains("id"))
+        return;
+    // Too large for the event: read it in parts, all from the same copy.
+    auto text = std::make_shared<QString>();
+    auto readFrom = std::make_shared<std::function<void(qint64)>>();
+    const qint64 id = copy.value("id").toInteger();
+    *readFrom = [this, sessionId, blockId, id, text, readFrom, put](qint64 offset) {
+        m_rex->call("com.superlogical.terminal.clipboard_read",
+                    {{"session_id", sessionId}, {"block_id", blockId},
+                     {"args", QJsonObject{{"id", id}, {"offset", offset}, {"max_bytes", 1 << 20}}}},
+                    [text, readFrom, put, offset](const QJsonObject &part, const QJsonObject &error) {
+            if (!error.isEmpty())
+                return;
+            const QString data = part.value("data").toString();
+            text->append(data);
+            if (part.value("eof").toBool() || data.isEmpty())
+                put(*text);
+            else
+                (*readFrom)(offset + data.toUtf8().size());
+        });
+    };
+    (*readFrom)(0);
 }
 
 void Workspace::setFocusFollowsMouse(bool on) {

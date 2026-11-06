@@ -1043,7 +1043,9 @@ void TerminalItem::keyPressEvent(QKeyEvent *event)
     }
     // Copy is taken even with nothing selected, so the program never sees a
     // shortcut the user meant for the terminal.
-    if (key == Qt::Key_C && mods == (Qt::ControlModifier | Qt::ShiftModifier)) {
+    // Ctrl+Insert copies too, the old CUA key the user's Ghostty also binds.
+    if ((key == Qt::Key_C && mods == (Qt::ControlModifier | Qt::ShiftModifier)) ||
+        (key == Qt::Key_Insert && mods == Qt::ControlModifier)) {
         d->copySelection(QClipboard::Clipboard);
         event->accept();
         return;
@@ -1253,8 +1255,11 @@ void TerminalItem::mouseReleaseEvent(QMouseEvent *event)
     ghostty_selection_gesture_event_set(d->gestureRelease, GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REF,
                                         onCell ? &ref : nullptr);
     ghostty_selection_gesture_event(d->gesture, d->term, d->gestureRelease, nullptr);
-    // Linux users paste a finished selection with the middle button.
+    // A finished selection goes to the clipboard as well as the primary
+    // selection, like Ghostty with copy-on-select = clipboard: paste it with
+    // Ctrl+V elsewhere, or with the middle button.
     d->copySelection(QClipboard::Selection);
+    d->copySelection(QClipboard::Clipboard);
 }
 
 // Qt sends this after the second press of a double click, which the gesture
