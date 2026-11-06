@@ -22,7 +22,7 @@ ApplicationWindow {
         if (id === "palette") picker.show("actions")
         else if (id === "session.switch") picker.show("sessions")
         else if (id === "help") help.open()
-        else if (id === "sidebar.toggle") sidebar.visible = !sidebar.visible
+        else if (id === "sidebar.toggle") sidebar.open = !sidebar.open
         else if (id === "tab.rename") rename.ask(id, qsTr("Rename Tab"), backend.windows.find(w => w.window_id === backend.activeWindow)?.label ?? "")
         else if (id === "session.rename") rename.ask(id, qsTr("Rename Session"), backend.sessions.find(s => s.session_id === backend.currentSession)?.label ?? "")
         else backend.perform(id)
@@ -57,13 +57,47 @@ ApplicationWindow {
 
         Rectangle {
             id: sidebar
-            Layout.preferredWidth: 200
+            // Collapsed, the sidebar keeps a narrow strip with the button that
+            // opens it again, so the toggle is always where you left it.
+            property bool open: true
+            Layout.preferredWidth: open ? 200 : 28
             Layout.fillHeight: true
             color: Qt.darker(theme.background, 1.25)
+            clip: true
+
+            Item {
+                id: sidebarHeader
+                width: parent.width
+                height: 32
+
+                Label {
+                    anchors.verticalCenter: parent.verticalCenter
+                    x: 14
+                    visible: sidebar.open
+                    text: qsTr("Sessions")
+                    font.pixelSize: 11
+                    font.capitalization: Font.AllUppercase
+                    font.letterSpacing: 1
+                    opacity: 0.5
+                }
+                ToolButton {
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    implicitWidth: 28
+                    implicitHeight: 28
+                    text: sidebar.open ? "‹" : "›"
+                    font.pixelSize: 18
+                    ToolTip.text: (sidebar.open ? qsTr("Hide sessions") : qsTr("Show sessions")) + "  (Ctrl+Shift+B)"
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 400
+                    onClicked: sidebar.open = !sidebar.open
+                }
+            }
 
             ListView {
                 anchors.fill: parent
-                anchors.topMargin: 4
+                anchors.topMargin: sidebarHeader.height
+                visible: sidebar.open
                 model: backend.sessions
                 // Sessions grouped by the machine they run on.
                 section.property: "host_label"
