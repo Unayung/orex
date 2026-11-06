@@ -1279,3 +1279,9 @@ void TerminalItem::wheelEvent(QWheelEvent *event)
     }
     d->scrollViewport(-3 * intptr_t(notches));
 }
+
+void TerminalItem::hoverEnterEvent(QHoverEvent *event)
+{
+    emit pointerEntered();
+    QQuickPaintedItem::hoverEnterEvent(event);
+}

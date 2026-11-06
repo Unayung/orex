@@ -50,6 +50,8 @@ public:
     void paint(QPainter *painter) override;
 
 signals:
+    // The pointer came into the pane, for focus that follows the mouse.
+    void pointerEntered();
     // Bytes to send to the program: encoded keys, pastes, mouse reports.
     void input(const QByteArray &bytes);
     // The cols and rows that fit the item at its current size and font.
@@ -70,6 +72,7 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
     void hoverMoveEvent(QHoverEvent *event) override;
+    void hoverEnterEvent(QHoverEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
 
 private:

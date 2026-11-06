@@ -13,6 +13,7 @@
 
 int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
+    app.setOrganizationName("orex");
     app.setApplicationName("orex");
     app.setApplicationVersion("0.1.0");
     app.setDesktopFileName("orex");

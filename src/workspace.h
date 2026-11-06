@@ -44,6 +44,8 @@ class Workspace : public QObject {
     Q_PROPERTY(QVariantList paneSlots READ paneSlots NOTIFY paneSlotsChanged)
     // Every action orex offers: id, title, shortcut. The palette lists them.
     Q_PROPERTY(QVariantList actions READ actions CONSTANT)
+    // Whether pointing at a pane focuses it, without a click. Remembered.
+    Q_PROPERTY(bool focusFollowsMouse READ focusFollowsMouse WRITE setFocusFollowsMouse NOTIFY focusFollowsMouseChanged)
 
 public:
     explicit Workspace(Theme *theme, QObject *parent = nullptr);
@@ -59,6 +61,8 @@ public:
     QVariantList minimized() const { return m_minimized; }
     QVariantList paneSlots() const { return m_paneSlots; }
     QVariantList actions() const;
+    bool focusFollowsMouse() const { return m_focusFollowsMouse; }
+    void setFocusFollowsMouse(bool on);
 
     // Connects, then shows the session whose label or ID suffix is
     // `wanted`, or the first session.
@@ -97,6 +101,7 @@ signals:
     void statusChanged();
     void framesChanged();
     void paneSlotsChanged();
+    void focusFollowsMouseChanged();
 
 private:
     struct Host {
@@ -169,6 +174,7 @@ private:
     // What each pane's program says: its title, and its status from OSC 7501
     // (idle, working, done, blocked), by block ID.
     QHash<QString, QString> m_titles, m_programStatus;
+    bool m_focusFollowsMouse = false;
     // A pane to focus once the session being selected is attached.
     QString m_pendingFocus;
     // Each floating layer's frame position and its panes' positions as last

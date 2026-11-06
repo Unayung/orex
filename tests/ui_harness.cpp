@@ -19,6 +19,7 @@
 
 int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
+    app.setOrganizationName("orex-harness"); // keeps test settings apart from the real app's
     QQuickStyle::setStyle("Material");
     qmlRegisterType<TerminalItem>("Orex", 1, 0, "TerminalItem");
     // A missing directory gives the default accent, for README screenshots.
@@ -100,6 +101,20 @@ int main(int argc, char *argv[]) {
             QTest::mouseRelease(window, Qt::LeftButton, {}, to.toPoint(), 16);
         });
     }
+    // Moves the pointer with no button held, "ms:x,y", after making the
+    // window active, as for focus that follows the mouse.
+    for (const QString &step : qEnvironmentVariable("OREX_HOVER").split(';', Qt::SkipEmptyParts))
+        QTimer::singleShot(step.section(':', 0, 0).toInt(), [window, at = step.section(':', 1)] {
+            window->requestActivate();
+            // "x1,y1>x2,y2" glides from one point to the other, crossing
+            // whatever lies between, as a hand on a mouse would.
+            const QStringList ends = at.split('>');
+            const QPoint from(ends[0].section(',', 0, 0).toInt(), ends[0].section(',', 1).toInt());
+            const QPoint to(ends.last().section(',', 0, 0).toInt(), ends.last().section(',', 1).toInt());
+            for (int i = 0; i <= 10; ++i)
+                QTest::mouseMove(window, from + (to - from) * i / 10, 10);
+            qInfo() << "hovered" << from << "->" << to << "active" << window->isActive();
+        });
     for (int i = 1; i <= shots; ++i)
         QTimer::singleShot(i * 2000, [=, &workspace, &app] {
             window->grabWindow().save(QStringLiteral("%1-%2.png").arg(prefix).arg(i));

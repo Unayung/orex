@@ -1,9 +1,11 @@
 #include "workspace.h"
 
 #include <QColor>
+#include <QGuiApplication>
 #include <QJsonArray>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QSettings>
 #include <QRectF>
 #include <QUrl>
 #include <memory>
@@ -58,6 +60,7 @@ void collectBlocks(const QJsonObject &node, QList<QPair<QString, QRectF>> &out) 
 }
 
 Workspace::Workspace(Theme *theme, QObject *parent) : QObject(parent), m_theme(theme) {
+    m_focusFollowsMouse = QSettings().value("focusFollowsMouse", false).toBool();
     connect(m_theme, &Theme::changed, this, [this] {
         for (Pane &pane : m_panes) {
             if (pane.stream)
@@ -613,6 +616,14 @@ void Workspace::layoutPanes() {
                 if (!reason.startsWith("4000") && !reason.contains("not found"))
                     flashStatus(tr("A pane's stream ended: %1").arg(reason));
             });
+            // Pointing at a pane focuses it when that's turned on, but only
+            // while orex is the active window and no mouse button is held,
+            // so passing over it on the way elsewhere or mid-drag doesn't.
+            connect(pane.terminal, &TerminalItem::pointerEntered, this, [this, terminal = pane.terminal] {
+                if (m_focusFollowsMouse && terminal && !terminal->hasActiveFocus() && m_area && m_area->window() &&
+                    m_area->window()->isActive() && QGuiApplication::mouseButtons() == Qt::NoButton)
+                    terminal->forceActiveFocus(Qt::MouseFocusReason);
+            });
             connect(pane.terminal, &QQuickItem::activeFocusChanged, this, [this, blockId](bool focused) {
                 if (focused && blockId != this->focusedBlock())
                     m_rex->call("session.focus_block", {{"session_id", m_sessionId}, {"block_id", blockId}});
@@ -700,6 +711,14 @@ void Workspace::closeAllPanes() {
         closePane(blockId);
 }
 
+void Workspace::setFocusFollowsMouse(bool on) {
+    if (on == m_focusFollowsMouse)
+        return;
+    m_focusFollowsMouse = on;
+    QSettings().setValue("focusFollowsMouse", on);
+    emit focusFollowsMouseChanged();
+}
+
 void Workspace::flashStatus(const QString &status) {
     setStatus(status);
     QTimer::singleShot(4000, this, [this, status] {
@@ -755,6 +774,7 @@ QVariantList Workspace::actions() const {
         {"pane.minimize_floating", QT_TR_NOOP("Minimize Floating Window"), "Ctrl+Alt+M"},
         {"pane.minimize_all_floating", QT_TR_NOOP("Minimize or Restore Floating Windows"), "Ctrl+Alt+Shift+Return"},
         {"sidebar.toggle", QT_TR_NOOP("Show or Hide Sessions"), "Ctrl+Shift+B"},
+        {"focus.follows_mouse", QT_TR_NOOP("Focus Follows Mouse: Turn On or Off"), ""},
         {"help", QT_TR_NOOP("Keyboard Shortcuts"), "Ctrl+Shift+/"},
     };
     QVariantList out;
@@ -823,6 +843,12 @@ QString Workspace::neighbor(const QString &blockId, const QString &direction) co
 }
 
 void Workspace::perform(const QString &id, const QVariant &arg) {
+    // A setting of orex itself, so it works with no session at all.
+    if (id == "focus.follows_mouse") {
+        setFocusFollowsMouse(!m_focusFollowsMouse);
+        flashStatus(m_focusFollowsMouse ? tr("Focus follows the mouse: on") : tr("Focus follows the mouse: off"));
+        return;
+    }
     // New sessions go to the host on screen, or this machine.
     if (id == "session.new" && !m_rex && !m_hosts.isEmpty())
         m_rex = m_hosts.first()->rex;
