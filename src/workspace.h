@@ -127,6 +127,9 @@ private:
     // Calls `then` with a new shell block's layout node, started in the
     // focused pane's directory, the way a new tab or split opens in Rex.app.
     void withNewShell(std::function<void(const QJsonObject &layout)> then);
+    // Moves a floating layer's panes into a new tab's layout, in place of
+    // `window`, then calls `then`. For tabs whose layout is empty.
+    void rebuildAsLayout(const QJsonObject &window, const QJsonObject &layer, std::function<void()> then);
     void closePane(const QString &blockId);
     void closeAllPanes();
     void setStatus(const QString &status);

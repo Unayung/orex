@@ -6,6 +6,7 @@
 #include <QQuickWindow>
 #include <QRectF>
 #include <QUrl>
+#include <memory>
 
 #include "blockstream.h"
 #include "paneborder.h"
@@ -490,7 +491,9 @@ void Workspace::layoutPanes() {
             connect(pane.stream, &BlockStream::ended, this, [this](const QString &reason) {
                 // 4000 is how Rex says the pane closed, which the next view
                 // shows by itself; anything else is worth saying.
-                if (!reason.startsWith("4000"))
+                // A pane that closes before its stream starts, such as the
+                // placeholder of a rebuilt layout, ends with "not found".
+                if (!reason.startsWith("4000") && !reason.contains("not found"))
                     flashStatus(tr("A pane's stream ended: %1").arg(reason));
             });
             connect(pane.terminal, &QQuickItem::activeFocusChanged, this, [this, blockId](bool focused) {
@@ -785,24 +788,33 @@ void Workspace::perform(const QString &id, const QVariant &arg) {
             call("session.swap_blocks", {{"session_id", session}, {"block_id", block}, {"other_block_id", other}});
     } else if (id == "pane.float") {
         const QJsonObject layer = layerOf(block);
-        if (layer.value("kind").toString() == "tiled") {
+        QString tiledAnchor;
+        int nonEmptyLayers = 0;
+        for (const QJsonValue &l : window.value("layers").toArray()) {
+            const QJsonArray blocks = l.toObject().value("blocks").toArray();
+            if (!blocks.isEmpty())
+                ++nonEmptyLayers;
+            if (l.toObject().value("kind").toString() == "tiled" && !blocks.isEmpty())
+                tiledAnchor = blocks.first().toObject().value("block_id").toString();
+        }
+        const int layerSize = layer.value("blocks").toArray().size();
+        auto floatIt = [=] {
             call("session.float_block", {{"session_id", session}, {"block_id", block},
                                          {"bounds", QJsonArray{0.15, 0.12, 0.7, 0.7}}});
-        } else {
+        };
+        if (layer.value("kind").toString() == "tiled") {
+            floatIt();
+        } else if (!tiledAnchor.isEmpty()) {
             // Docking puts the pane back beside the first pane of the layout.
-            QString anchor;
-            for (const QJsonValue &l : window.value("layers").toArray())
-                if (l.toObject().value("kind").toString() == "tiled" && anchor.isEmpty())
-                    anchor = l.toObject().value("blocks").toArray().first().toObject().value("block_id").toString();
-            if (!anchor.isEmpty())
-                call("session.move_block", {{"session_id", session}, {"block_id", block}, {"anchor_block_id", anchor},
-                                            {"direction", "horizontal"}, {"side", "after"}});
-            else
-                // ponytail: Rex can only dock beside a pane, and the layout is
-                // empty when its only pane was floated. Filling the tab is the
-                // nearest thing; dock for real once the API takes an empty layout.
-                call("session.resize_layer", {{"session_id", session}, {"layer_id", layer.value("layer_id").toString()},
-                                              {"bounds", QJsonArray{0, 0, 1, 1}}});
+            call("session.move_block", {{"session_id", session}, {"block_id", block}, {"anchor_block_id", tiledAnchor},
+                                        {"direction", "horizontal"}, {"side", "after"}});
+        } else if (nonEmptyLayers == 1) {
+            // The layout is empty and every pane sits in this one floating
+            // layer, which Rex can neither dock into nor float out of. Rebuild
+            // it as a real layout first; then float the pane if it had company.
+            rebuildAsLayout(window, layer, layerSize > 1 ? std::function<void()>(floatIt) : std::function<void()>());
+        } else {
+            flashStatus(tr("Rex can't dock a pane into an empty layout while other floating windows are open."));
         }
     } else if (id == "pane.new_floating") {
         withNewShell([=](const QJsonObject &layout) {
@@ -820,6 +832,66 @@ void Workspace::perform(const QString &id, const QVariant &arg) {
             if (l.toObject().value("kind").toString() != "tiled")
                 setLayerMinimized(l.toObject().value("layer_id").toString(), anyShowing);
     }
+}
+
+void Workspace::rebuildAsLayout(const QJsonObject &window, const QJsonObject &layer, std::function<void()> then) {
+    // Rex docks a pane only beside another pane, so a tab whose layout is
+    // empty can't take one back. Build the same panes in a new tab instead:
+    // start it with a placeholder shell, move each pane in beside the one
+    // before it (side by side or stacked, as they were), close the
+    // placeholder, and let the emptied old tab close by itself. The new tab
+    // then takes the old one's name and place.
+    QList<QPair<QString, QRectF>> blocks;
+    collectBlocks(layer.value("layout").toObject(), blocks);
+    if (blocks.isEmpty())
+        return;
+    const QString session = m_sessionId;
+    const QString oldWindow = window.value("window_id").toString();
+    const QString label = window.value("label").toString();
+    QString nextWindow;
+    const QJsonArray windows = m_view.value("windows").toArray();
+    for (int i = 0; i + 1 < windows.size(); ++i)
+        if (windows.at(i).toObject().value("window_id").toString() == oldWindow)
+            nextWindow = windows.at(i + 1).toObject().value("window_id").toString();
+
+    auto fail = [this](const QJsonObject &error) {
+        flashStatus(tr("Couldn't rebuild the layout: %1").arg(error.value("message").toString()));
+    };
+    const QJsonObject shell{{"block", QJsonObject{{"flavor", "com.superlogical.terminal.shell"}}}};
+    m_rex->call("session.new_window", {{"session_id", session}, {"layout", shell}, {"focus", true}},
+                [=, this](const QJsonObject &created, const QJsonObject &error) {
+        if (!error.isEmpty())
+            return fail(error);
+        const QString newWindow = created.value("window_id").toString();
+        const QString placeholder = created.value("block_ids").toArray().first().toString();
+        auto step = std::make_shared<std::function<void(int)>>();
+        *step = [=, this](int i) {
+            if (i == blocks.size()) {
+                m_rex->call("block.close", {{"session_id", session}, {"block_id", placeholder}});
+                m_rex->call("session.set_window_label", {{"session_id", session}, {"window_id", newWindow}, {"label", label}});
+                QJsonObject move{{"session_id", session}, {"window_id", newWindow}};
+                if (!nextWindow.isEmpty())
+                    move.insert("before_window_id", nextWindow);
+                m_rex->call("session.move_window", move, [then](const QJsonObject &, const QJsonObject &) {
+                    if (then)
+                        then();
+                });
+                return;
+            }
+            const QRectF r = blocks.at(i).second;
+            const QRectF before = i > 0 ? blocks.at(i - 1).second : QRectF();
+            const bool sideBySide = i == 0 || r.left() >= before.right() - 0.001;
+            m_rex->call("session.move_block", {{"session_id", session}, {"block_id", blocks.at(i).first},
+                                               {"anchor_block_id", i == 0 ? placeholder : blocks.at(i - 1).first},
+                                               {"direction", sideBySide ? "horizontal" : "vertical"}, {"side", "after"}},
+                        [=](const QJsonObject &, const QJsonObject &error) {
+                if (!error.isEmpty())
+                    return fail(error);
+                (*step)(i + 1);
+            });
+        };
+        (*step)(0);
+    });
 }
 
 void Workspace::moveLayer(const QString &layerId, qreal x, qreal y) {
