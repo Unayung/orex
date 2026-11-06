@@ -162,14 +162,9 @@ ApplicationWindow {
                         // A tenth of the text color over the sidebar: it shows on
                         // near-black themes, where lighter() has nothing to scale.
                         readonly property color fg: Qt.color(theme.foreground)
+                        // Neutral on purpose: the accent means "selected" in this
+                        // list, and a machine heading isn't something you select.
                         color: Qt.tint(sidebar.color, Qt.rgba(fg.r, fg.g, fg.b, 0.12))
-
-                        Rectangle {
-                            width: 3
-                            height: parent.height
-                            color: Material.accent
-                            opacity: 0.7
-                        }
                         Label {
                             anchors.verticalCenter: parent.verticalCenter
                             x: 14
@@ -204,7 +199,11 @@ ApplicationWindow {
                     readonly property bool inFront: (isTab || isPane) && current && (modelData.focused ?? false)
                     width: ListView.view.width
                     height: isSession ? (hasSubtitle ? 46 : 34) : 26
-                    color: current && isSession ? theme.surface
+                    // The selected session is tinted with the accent, which no
+                    // machine heading uses, so the two never look alike.
+                    readonly property color accentTint: Qt.tint(sidebar.color, Qt.rgba(Material.accent.r, Material.accent.g,
+                                                                                         Material.accent.b, 0.22))
+                    color: current && isSession ? accentTint
                          : (hover.hovered && !placeholder ? Qt.lighter(theme.background, 1.3) : "transparent")
 
                     Rectangle {
@@ -264,7 +263,8 @@ ApplicationWindow {
                             color: theme.foreground
                             font.italic: row.placeholder
                             font.pixelSize: row.isSession ? 14 : 12
-                            font.weight: row.isSession ? Font.DemiBold : (row.inFront ? Font.Bold : Font.Normal)
+                            font.weight: row.isSession ? (row.current ? Font.Bold : Font.DemiBold)
+                                                       : (row.inFront ? Font.Bold : Font.Normal)
                             opacity: row.placeholder ? 0.4
                                    : row.isSession ? (row.current ? 1 : 0.75)
                                    : row.inFront ? 0.95 : 0.6
