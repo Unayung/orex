@@ -242,6 +242,9 @@ struct TerminalItem::Private {
     void installCallbacks();
     void endHold();
     void setupFont();
+    // Recomputes the cols and rows that fit, and announces a change.
+    void refit(TerminalItem *q);
+    qreal pointSize = 12;
     void scheduleRepaint();
     void resetBlink();
     void readCell(int x, const GhosttyRenderStateColors &colors, int selStart, int selEnd);
@@ -307,7 +310,7 @@ void TerminalItem::Private::endHold()
 void TerminalItem::Private::setupFont()
 {
     QFont base = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-    base.setPointSizeF(12);
+    base.setPointSizeF(pointSize);
     base.setKerning(false);
 
     // The grid uses whole pixels so that cell backgrounds meet without seams,
@@ -1109,13 +1112,37 @@ QVariant TerminalItem::inputMethodQuery(Qt::InputMethodQuery query) const
 void TerminalItem::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     QQuickPaintedItem::geometryChange(newGeometry, oldGeometry);
-    const int cols = qFloor(newGeometry.width() / d->cellWidth);
-    const int rows = qFloor(newGeometry.height() / d->cellHeight);
-    if (cols < 1 || rows < 1 || (cols == d->fitCols && rows == d->fitRows))
+    d->refit(this);
+}
+
+void TerminalItem::Private::refit(TerminalItem *q)
+{
+    const int cols = qFloor(q->width() / cellWidth);
+    const int rows = qFloor(q->height() / cellHeight);
+    if (cols < 1 || rows < 1 || (cols == fitCols && rows == fitRows))
         return;
-    d->fitCols = cols;
-    d->fitRows = rows;
-    emit gridSizeChanged(cols, rows);
+    fitCols = cols;
+    fitRows = rows;
+    emit q->gridSizeChanged(cols, rows);
+}
+
+qreal TerminalItem::fontSize() const
+{
+    return d->pointSize;
+}
+
+void TerminalItem::setFontSize(qreal points)
+{
+    points = qBound<qreal>(6, points, 36);
+    if (qFuzzyCompare(points, d->pointSize))
+        return;
+    d->pointSize = points;
+    d->setupFont();
+    // New cells change how many fit; the server's resize message then
+    // brings the local terminal to the same size.
+    d->refit(this);
+    update();
+    emit fontSizeChanged();
 }
 
 void TerminalItem::focusInEvent(QFocusEvent *event)

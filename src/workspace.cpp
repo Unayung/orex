@@ -5,6 +5,7 @@
 #include <QJsonArray>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QProcess>
 #include <QSettings>
 #include <QSysInfo>
 #include <QUuid>
@@ -85,6 +86,7 @@ void collectBlocks(const QJsonObject &node, QList<QPair<QString, QRectF>> &out) 
 
 Workspace::Workspace(Theme *theme, QObject *parent) : QObject(parent), m_theme(theme) {
     m_focusFollowsMouse = QSettings().value("focusFollowsMouse", false).toBool();
+    m_fontSize = QSettings().value("fontSize", 12.0).toDouble();
     connect(m_theme, &Theme::changed, this, [this] {
         for (Pane &pane : m_panes) {
             if (pane.stream)
@@ -371,8 +373,17 @@ QVariantList Workspace::windows() const {
     QVariantList list;
     for (const QJsonValue &w : m_view.value("windows").toArray()) {
         const QJsonObject window = w.toObject();
+        // The tab shows its most urgent pane: blocked, then working, then done.
+        QString status;
+        for (const QJsonValue &l : window.value("layers").toArray())
+            for (const QJsonValue &b : l.toObject().value("blocks").toArray()) {
+                const QString s = m_programStatus.value(b.toObject().value("block_id").toString());
+                const auto rank = [](const QString &x) { return x == "blocked" ? 3 : x == "working" ? 2 : x == "done" ? 1 : 0; };
+                if (rank(s) > rank(status))
+                    status = s;
+            }
         list.append(QVariantMap{{"window_id", window.value("window_id").toString()},
-                                {"label", window.value("label").toString()}});
+                                {"label", window.value("label").toString()}, {"status", status}});
     }
     return list;
 }
@@ -485,11 +496,10 @@ void Workspace::onEvent(Host *host, const QJsonObject &event) {
                 m_titles.insert(blockId, block.value("payload").toObject().value("title").toString());
                 rebuildSessions();
             } else if (name == "program_status_changed") {
-                m_programStatus.insert(blockId, block.value("payload").toObject().value("record").toObject().value("state").toString());
-                rebuildSessions();
+                const QString now = block.value("payload").toObject().value("record").toObject().value("state").toString();
+                programStatusChanged(host, blockId, m_programStatus.value(blockId), now);
             } else if (name == "program_status_removed") {
-                m_programStatus.remove(blockId);
-                rebuildSessions();
+                programStatusChanged(host, blockId, m_programStatus.value(blockId), QString());
             }
         }
     }
@@ -654,6 +664,7 @@ void Workspace::layoutPanes() {
             pane.terminal = new TerminalItem(m_area);
             pane.border = new PaneBorder(m_area);
             pane.terminal->setSelectionColor(QColor(m_theme->surface()));
+            pane.terminal->setFontSize(m_fontSize);
             pane.stream = new BlockStream(m_rex, m_sessionId, blockId, pane.terminal, this);
             pane.stream->setTheme(m_theme->terminalTheme());
             connect(pane.stream, &BlockStream::ended, this, [this](const QString &reason) {
@@ -700,11 +711,8 @@ void Workspace::layoutPanes() {
             pane.border->setPosition(slot.topLeft());
             pane.border->setSize(slot.size());
             pane.border->setZ(place.z + 0.5);
-            // The focused pane stands out once there's more than one to tell apart.
-            pane.border->setColor(blockId == focusedBlock && places.size() > 1
-                                      ? QColor(m_theme->accent())
-                                      : QColor(m_theme->surface()).lighter(160));
             pane.border->setVisible(true);
+            styleBorder(blockId);
         }
         // Start after the first size is set, so the pty is claimed at the
         // size this pane really has.
@@ -719,6 +727,9 @@ void Workspace::layoutPanes() {
         m_dividers = dividers;
         emit paneSlotsChanged();
     }
+    // Borders depend on how many panes show, known only now.
+    for (const QString &blockId : m_panes.keys())
+        styleBorder(blockId);
 
     if (m_panes.contains(focusedBlock) && m_panes[focusedBlock].terminal && m_panes[focusedBlock].terminal->isVisible())
         m_panes[focusedBlock].terminal->forceActiveFocus();
@@ -758,6 +769,88 @@ void Workspace::closePane(const QString &blockId) {
 void Workspace::closeAllPanes() {
     for (const QString &blockId : m_panes.keys())
         closePane(blockId);
+}
+
+void Workspace::setFontSize(qreal points) {
+    points = qBound<qreal>(6, points, 36);
+    if (qFuzzyCompare(points, m_fontSize))
+        return;
+    m_fontSize = points;
+    QSettings().setValue("fontSize", points);
+    for (const Pane &pane : std::as_const(m_panes))
+        if (pane.terminal)
+            pane.terminal->setFontSize(points);
+    emit fontSizeChanged();
+}
+
+void Workspace::styleBorder(const QString &blockId) {
+    const Pane pane = m_panes.value(blockId);
+    if (!pane.border)
+        return;
+    const QString status = m_programStatus.value(blockId);
+    const bool focused = blockId == focusedBlock() && m_paneSlots.size() > 1;
+    if (status == "blocked")
+        pane.border->setStyle(QColor(m_theme->red()), 2, false);
+    else if (status == "working")
+        pane.border->setStyle(QColor(m_theme->accent()), 2, true);
+    else if (status == "done")
+        pane.border->setStyle(QColor(m_theme->green()), focused ? 2 : 1, false);
+    else
+        // The focused pane stands out once there's more than one to tell apart.
+        pane.border->setStyle(focused ? QColor(m_theme->accent()) : QColor(m_theme->surface()).lighter(160), 1, false);
+}
+
+void Workspace::programStatusChanged(Host *host, const QString &blockId, const QString &before, const QString &now) {
+    if (now.isEmpty())
+        m_programStatus.remove(blockId);
+    else
+        m_programStatus.insert(blockId, now);
+    if (before == now)
+        return;
+    rebuildSessions();
+    styleBorder(blockId);
+    // Tabs not on screen have no panes made yet, but their dots still change.
+    if (host == m_host)
+        emit viewChanged();
+    if ((now == "blocked" || now == "done") && before != now)
+        notify(host, blockId, now);
+}
+
+void Workspace::notify(Host *host, const QString &blockId, const QString &state) {
+    // Only when you aren't looking at that pane: orex isn't the active
+    // window, or the pane isn't on screen.
+    const Pane pane = m_panes.value(blockId);
+    const bool active = m_area && m_area->window() && m_area->window()->isActive();
+    if (active && pane.terminal && pane.terminal->isVisible())
+        return;
+    QString sessionId, sessionLabel;
+    for (auto it = host->views.cbegin(); it != host->views.cend(); ++it)
+        for (const QJsonValue &w : it.value().value("windows").toArray())
+            for (const QJsonValue &l : w.toObject().value("layers").toArray())
+                for (const QJsonValue &b : l.toObject().value("blocks").toArray())
+                    if (b.toObject().value("block_id").toString() == blockId)
+                        sessionId = it.key();
+    for (const QVariant &s : std::as_const(host->sessions))
+        if (s.toMap().value("session_id").toString() == sessionId)
+            sessionLabel = s.toMap().value("label").toString();
+    const QString where = host->key == "local" ? sessionLabel : QStringLiteral("%1 · %2").arg(host->label, sessionLabel);
+    const QString title = state == "blocked" ? tr("Needs you: %1").arg(where) : tr("Done: %1").arg(where);
+    const QString body = m_titles.value(blockId);
+
+    // notify-send --wait prints the chosen action, so Open can bring you to
+    // the pane.
+    auto *process = new QProcess(this);
+    connect(process, &QProcess::finished, this, [this, process, sessionId, blockId] {
+        const bool open = process->readAllStandardOutput().trimmed() == "open";
+        process->deleteLater();
+        if (!open || sessionId.isEmpty())
+            return;
+        focusPane(sessionId, blockId);
+        if (m_area && m_area->window())
+            m_area->window()->requestActivate();
+    });
+    process->start("notify-send", {"--app-name=orex", "--icon=orex", "--wait", "--action=open=" + tr("Open"),
+                                   state == "blocked" ? "--urgency=critical" : "--urgency=normal", title, body});
 }
 
 void Workspace::setFocusFollowsMouse(bool on) {
@@ -825,6 +918,9 @@ QVariantList Workspace::actions() const {
         {"sidebar.toggle", QT_TR_NOOP("Show or Hide Sessions"), "Ctrl+Shift+B"},
         {"focus.follows_mouse", QT_TR_NOOP("Focus Follows Mouse: Turn On or Off"), ""},
         {"host.add", QT_TR_NOOP("Add Remote Host…"), ""},
+        {"font.bigger", QT_TR_NOOP("Bigger Text"), "Ctrl+="},
+        {"font.smaller", QT_TR_NOOP("Smaller Text"), "Ctrl+-"},
+        {"font.reset", QT_TR_NOOP("Default Text Size"), "Ctrl+0"},
         {"help", QT_TR_NOOP("Keyboard Shortcuts"), "Ctrl+Shift+/"},
     };
     QVariantList out;
@@ -893,7 +989,12 @@ QString Workspace::neighbor(const QString &blockId, const QString &direction) co
 }
 
 void Workspace::perform(const QString &id, const QVariant &arg) {
-    // A setting of orex itself, so it works with no session at all.
+    // Settings of orex itself, so they work with no session at all.
+    if (id == "font.bigger" || id == "font.smaller" || id == "font.reset") {
+        setFontSize(id == "font.reset" ? 12 : m_fontSize + (id == "font.bigger" ? 1 : -1));
+        flashStatus(tr("Text size %1 pt").arg(m_fontSize));
+        return;
+    }
     if (id == "focus.follows_mouse") {
         setFocusFollowsMouse(!m_focusFollowsMouse);
         flashStatus(m_focusFollowsMouse ? tr("Focus follows the mouse: on") : tr("Focus follows the mouse: off"));

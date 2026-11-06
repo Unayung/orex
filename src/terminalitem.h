@@ -18,6 +18,8 @@ class TerminalItem : public QQuickPaintedItem {
     // The background of selected cells. Left unset, selected cells swap
     // their foreground and background instead.
     Q_PROPERTY(QColor selectionColor READ selectionColor WRITE setSelectionColor NOTIFY selectionColorChanged)
+    // In points. Changing it refits the grid, which resizes the pty.
+    Q_PROPERTY(qreal fontSize READ fontSize WRITE setFontSize NOTIFY fontSizeChanged)
 
 public:
     explicit TerminalItem(QQuickItem *parent = nullptr);
@@ -27,6 +29,8 @@ public:
     int rows() const;
 
     QColor selectionColor() const;
+    qreal fontSize() const;
+    void setFontSize(qreal points);
     void setSelectionColor(const QColor &color);
 
     // Replaces the terminal with one restored from a Ghostty snapshot
@@ -50,6 +54,7 @@ public:
     void paint(QPainter *painter) override;
 
 signals:
+    void fontSizeChanged();
     // The pointer came into the pane, for focus that follows the mouse.
     void pointerEntered();
     // Bytes to send to the program: encoded keys, pastes, mouse reports.

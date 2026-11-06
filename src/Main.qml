@@ -264,10 +264,32 @@ ApplicationWindow {
                 Repeater {
                     model: backend.windows
                     TabButton {
+                        id: tab
                         required property var modelData
+                        readonly property string status: modelData.status ?? ""
                         text: modelData.label
-                        width: implicitWidth
+                        width: implicitWidth + (status.length > 0 ? 14 : 0)
                         onClicked: backend.selectWindow(modelData.window_id)
+                        // The tab's most urgent pane, so a tab you aren't on
+                        // can still say it needs you.
+                        Rectangle {
+                            visible: tab.status.length > 0 && tab.status !== "idle"
+                            width: tab.status === "blocked" ? 9 : 7
+                            height: width
+                            radius: width / 2
+                            anchors.right: parent.right
+                            anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: tab.status === "blocked" ? theme.red : tab.status === "done" ? theme.green : Material.accent
+                            border.width: tab.status === "blocked" ? 2 : 0
+                            border.color: Qt.lighter(theme.red, 1.5)
+                            SequentialAnimation on opacity {
+                                running: tab.status === "working"
+                                loops: Animation.Infinite
+                                NumberAnimation { to: 0.25; duration: 700; easing.type: Easing.InOutSine }
+                                NumberAnimation { to: 1; duration: 700; easing.type: Easing.InOutSine }
+                            }
+                        }
                     }
                 }
             }

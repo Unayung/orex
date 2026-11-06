@@ -51,6 +51,8 @@ class Workspace : public QObject {
     Q_PROPERTY(QVariantList actions READ actions CONSTANT)
     // Whether pointing at a pane focuses it, without a click. Remembered.
     Q_PROPERTY(bool focusFollowsMouse READ focusFollowsMouse WRITE setFocusFollowsMouse NOTIFY focusFollowsMouseChanged)
+    // The terminals' font size in points, for every pane. Remembered.
+    Q_PROPERTY(qreal fontSize READ fontSize NOTIFY fontSizeChanged)
 
 public:
     explicit Workspace(Theme *theme, QObject *parent = nullptr);
@@ -68,6 +70,8 @@ public:
     QVariantList dividers() const { return m_dividers; }
     QVariantList actions() const;
     bool focusFollowsMouse() const { return m_focusFollowsMouse; }
+    qreal fontSize() const { return m_fontSize; }
+    void setFontSize(qreal points);
     void setFocusFollowsMouse(bool on);
 
     // Connects, then shows the session whose label or ID suffix is
@@ -115,6 +119,7 @@ signals:
     void framesChanged();
     void paneSlotsChanged();
     void focusFollowsMouseChanged();
+    void fontSizeChanged();
     void hostAddFinished(bool ok, const QString &message);
 
 private:
@@ -167,6 +172,12 @@ private:
     void closePane(const QString &blockId);
     void closeAllPanes();
     void setStatus(const QString &status);
+    // A pane's program status changed: redraw what shows it, and tell the
+    // desktop when it needs you and you aren't looking.
+    void programStatusChanged(Host *host, const QString &blockId, const QString &before, const QString &now);
+    // Draws a pane's border for its focus and its program's status.
+    void styleBorder(const QString &blockId);
+    void notify(Host *host, const QString &blockId, const QString &state);
     // Shows a status for a few seconds, for errors of single actions.
     void flashStatus(const QString &status);
 
@@ -189,6 +200,7 @@ private:
     // (idle, working, done, blocked), by block ID.
     QHash<QString, QString> m_titles, m_programStatus;
     bool m_focusFollowsMouse = false;
+    qreal m_fontSize = 12;
     // A pane to focus once the session being selected is attached.
     QString m_pendingFocus;
     // Each floating layer's frame position and its panes' positions as last
