@@ -2,11 +2,16 @@
 
 ![orex showing a Rex session with three panes](docs/screenshot.png)
 
-A [Rex](https://superlogical.com) client for [Omarchy](https://omarchy.org). Rex
-keeps terminal sessions running on a server, and its Mac app shows them. Rex has no
-Linux client yet, so orex is one: it shows every session on the Rex server of this
-machine, with its tabs and splits, and keeps them in step with whatever the Mac app
-does to the same sessions.
+Rex on Omarchy, shortened to orex. [Rex](https://superlogical.com) keeps
+terminal sessions running on a server, and its Mac and iOS apps show them. Rex has
+no Linux client yet, so orex is one for [Omarchy](https://omarchy.org): it shows
+the sessions of this machine's Rex server and of the other hosts in `rex hosts`,
+with their tabs, splits, and floating panes, and keeps them in step with whatever
+the Mac app does to the same sessions.
+
+> orex is an unofficial client. It isn't made by or affiliated with Superlogical.
+> It speaks the API that Rex servers document at `/llms.txt`, which is still in
+> beta and may change under it.
 
 The terminal is [libghostty-vt](https://ghostty.org), the core Rex itself uses, so
 orex reads Rex's terminal snapshots directly and draws what the program in each pane
@@ -76,9 +81,9 @@ bin/install         # builds the package and installs it, so orex is in the laun
 
 ## Not yet
 
-Floating layers, Kitty images, rectangular selection, a scrollbar, connecting to
-Rex servers on other machines, and resuming a stream after a dropped connection
-(orex reconnects from scratch when the server restarts).
+Kitty images, rectangular selection, a scrollbar, resizing panes from the
+keyboard, and resuming a stream after a dropped connection (orex reconnects from
+scratch when a server restarts or a machine wakes up).
 
 ## Agent icons
 
