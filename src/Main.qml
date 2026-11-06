@@ -146,17 +146,44 @@ ApplicationWindow {
                 model: backend.sessions
                 // Sessions grouped by the machine they run on.
                 section.property: "host_label"
-                section.delegate: Label {
+                // Each machine's sessions start with a band of their own, so
+                // where one host ends and the next begins is plain.
+                section.delegate: Item {
                     required property string section
                     width: ListView.view.width
-                    topPadding: 12
-                    bottomPadding: 4
-                    leftPadding: 14
-                    text: section
-                    font.pixelSize: 11
-                    font.capitalization: Font.AllUppercase
-                    font.letterSpacing: 1
-                    opacity: 0.5
+                    height: 42
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: 4
+                        height: 30
+                        // A tenth of the text color over the sidebar: it shows on
+                        // near-black themes, where lighter() has nothing to scale.
+                        readonly property color fg: Qt.color(theme.foreground)
+                        color: Qt.tint(sidebar.color, Qt.rgba(fg.r, fg.g, fg.b, 0.12))
+
+                        Rectangle {
+                            width: 3
+                            height: parent.height
+                            color: Material.accent
+                            opacity: 0.7
+                        }
+                        Label {
+                            anchors.verticalCenter: parent.verticalCenter
+                            x: 14
+                            width: parent.width - 20
+                            elide: Text.ElideRight
+                            text: parent.parent.section
+                            font.pixelSize: 13
+                            font.bold: true
+                            font.capitalization: Font.AllUppercase
+                            font.letterSpacing: 1.2
+                            color: theme.foreground
+                            opacity: 0.85
+                        }
+                    }
                 }
                 delegate: Rectangle {
                     id: row
