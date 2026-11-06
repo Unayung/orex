@@ -67,6 +67,8 @@ public:
     Q_INVOKABLE void setPaneArea(QQuickItem *area);
 
     Q_INVOKABLE void selectSession(const QString &sessionId);
+    // Shows a session and focuses one of its panes, in whichever tab it is.
+    Q_INVOKABLE void focusPane(const QString &sessionId, const QString &blockId);
     Q_INVOKABLE void selectWindow(const QString &windowId);
     Q_INVOKABLE void stepWindow(int delta);
     Q_INVOKABLE void stepSession(int delta);
@@ -105,6 +107,8 @@ private:
         QTimer *retry;
         QVariantList sessions;
         QString problem;  // why it has no sessions to show, or empty
+        // Every session's view, for the panes the sidebar lists under it.
+        QHash<QString, QJsonObject> views;
     };
 
     struct Pane {
@@ -124,6 +128,9 @@ private:
     Host *hostOf(const QString &sessionId) const;
     void onEvent(Host *host, const QJsonObject &event);
     void refreshSessions(Host *host);
+    // Fetches one session's view for the sidebar, and the titles of panes
+    // it hasn't seen yet.
+    void fetchSessionView(Host *host, const QString &sessionId);
     void fetchView();
     void applyView(const QJsonObject &view);
     void layoutPanes();
@@ -159,6 +166,11 @@ private:
     QHash<QString, Pane> m_panes;
     QString m_status;
     QVariantList m_frames, m_minimized, m_paneSlots;
+    // What each pane's program says: its title, and its status from OSC 7501
+    // (idle, working, done, blocked), by block ID.
+    QHash<QString, QString> m_titles, m_programStatus;
+    // A pane to focus once the session being selected is attached.
+    QString m_pendingFocus;
     // Each floating layer's frame position and its panes' positions as last
     // laid out, so a drag can move them by the same offset.
     struct DraggedLayer { QPointF frame; QList<QPair<QString, QPointF>> panes; };

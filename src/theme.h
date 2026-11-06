@@ -17,6 +17,10 @@ class Theme : public QObject {
     Q_PROPERTY(QString background READ background NOTIFY changed)
     Q_PROPERTY(QString foreground READ foreground NOTIFY changed)
     Q_PROPERTY(QString selection READ selection NOTIFY changed)
+    // The palette's red and green, for status marks that must not look like
+    // the accent.
+    Q_PROPERTY(QString red READ red NOTIFY changed)
+    Q_PROPERTY(QString green READ green NOTIFY changed)
     Q_PROPERTY(int radius READ radius NOTIFY changed)
 
 public:
@@ -28,6 +32,8 @@ public:
     QString background() const { return color("background", "#101010"); }
     QString foreground() const { return color("foreground", "#e0e0e0"); }
     QString selection() const { return color("selection", "#3a3a3a"); }
+    QString red() const { return color("color1", "#e06c75"); }
+    QString green() const { return color("color2", "#7fbf7f"); }
     int radius() const { return m_radius; }
 
     // Arguments for com.superlogical.terminal.set_theme, or empty when

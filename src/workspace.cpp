@@ -80,7 +80,7 @@ void Workspace::start(const QString &wanted) {
 }
 
 Workspace::Host *Workspace::addHost(const QString &key, const QString &label, const QString &endpoint) {
-    auto *host = new Host{key, label, endpoint, new RexClient(this), new QTimer(this), {}, tr("Connecting…")};
+    auto *host = new Host{key, label, endpoint, new RexClient(this), new QTimer(this), {}, tr("Connecting…"), {}};
     m_hosts.append(host);
     // A closed control connection means the server restarted or the machine
     // went away (a Mac asleep). Keep trying, gently for remote machines.
@@ -112,7 +112,9 @@ Workspace::Host *Workspace::addHost(const QString &key, const QString &label, co
         host->problem.clear();
         // Session-wide events keep the session list current; block output
         // comes over data connections instead, so block events aren't needed.
-        host->rex->call("session.attach_all", {{"event_scope", "session"}},
+        // "all" brings every session's block events too, such as title
+        // changes, which the sidebar shows for each pane.
+        host->rex->call("session.attach_all", {{"event_scope", "all"}},
                         [this, host](const QJsonObject &result, const QJsonObject &error) {
             if (!error.isEmpty()) {
                 host->problem = error.value("message").toString();
@@ -181,8 +183,17 @@ void Workspace::refreshHosts() {
 
 void Workspace::setSessions(Host *host, const QJsonArray &sessions) {
     host->sessions.clear();
-    for (const QJsonValue &s : sessions)
+    QSet<QString> ids;
+    for (const QJsonValue &s : sessions) {
         host->sessions.append(s.toObject().toVariantMap());
+        const QString id = s.toObject().value("session_id").toString();
+        ids.insert(id);
+        if (!host->views.contains(id))
+            fetchSessionView(host, id);
+    }
+    for (const QString &id : host->views.keys())
+        if (!ids.contains(id))
+            host->views.remove(id);
     rebuildSessions();
     // A session orex just created, or the one on screen before a reconnect,
     // is selected as soon as it shows up.
@@ -192,29 +203,95 @@ void Workspace::setSessions(Host *host, const QJsonArray &sessions) {
 }
 
 void Workspace::rebuildSessions() {
-    // One flat list for the sidebar, grouped by host_label. A host without
-    // sessions gets a placeholder row that says why.
+    // One flat list for the sidebar, grouped by host_label: each session,
+    // then its panes when it has more than one. A host without sessions gets
+    // a placeholder row that says why.
     QVariantList list;
     for (const Host *host : std::as_const(m_hosts)) {
         for (const QVariant &s : host->sessions) {
             QVariantMap row = s.toMap();
+            const QString sessionId = row.value("session_id").toString();
+            row.insert("kind", "session");
             row.insert("host", host->key);
             row.insert("host_label", host->label);
-            list.append(row);
+            // The panes, tab by tab, in layout order.
+            QVariantList panes;
+            const QJsonObject view = host->views.value(sessionId);
+            for (const QJsonValue &w : view.value("windows").toArray()) {
+                const QJsonObject window = w.toObject();
+                for (const QJsonValue &l : window.value("layers").toArray())
+                    for (const QJsonValue &b : l.toObject().value("blocks").toArray()) {
+                        const QString blockId = b.toObject().value("block_id").toString();
+                        QString title = m_titles.value(blockId);
+                        if (title.isEmpty())
+                            title = b.toObject().value("label").toString();
+                        panes.append(QVariantMap{{"kind", "pane"}, {"session_id", sessionId}, {"block_id", blockId},
+                                                 {"label", title}, {"status", m_programStatus.value(blockId)},
+                                                 {"focused", blockId == window.value("focused_block_id").toString() &&
+                                                                 window.value("window_id") == view.value("active_window_id")},
+                                                 {"host", host->key}, {"host_label", host->label}});
+                    }
+            }
+            if (panes.size() == 1) {
+                // One pane: its title is the session's second line.
+                row.insert("subtitle", panes.first().toMap().value("label"));
+                row.insert("status", panes.first().toMap().value("status"));
+                list.append(row);
+            } else {
+                list.append(row);
+                list.append(panes);
+            }
         }
         if (host->sessions.isEmpty()) {
             // The full reason goes in a tooltip; the row stays short.
             const QString label = host->problem.isEmpty() ? tr("No sessions")
                                 : host->problem == tr("Connecting…") ? host->problem
                                 : tr("Unreachable, retrying…");
-            list.append(QVariantMap{{"session_id", ""}, {"host", host->key}, {"host_label", host->label},
-                                    {"label", label}, {"detail", host->problem}, {"placeholder", true}});
+            list.append(QVariantMap{{"session_id", ""}, {"kind", "placeholder"}, {"host", host->key},
+                                    {"host_label", host->label}, {"label", label}, {"detail", host->problem},
+                                    {"placeholder", true}});
         }
     }
     if (list != m_sessions) {
         m_sessions = list;
         emit sessionsChanged();
     }
+}
+
+void Workspace::fetchSessionView(Host *host, const QString &sessionId) {
+    host->rex->call("session.view", {{"session_id", sessionId}},
+                    [this, host, sessionId](const QJsonObject &view, const QJsonObject &error) {
+        if (!error.isEmpty())
+            return;
+        host->views.insert(sessionId, view);
+        for (const QJsonValue &w : view.value("windows").toArray())
+            for (const QJsonValue &l : w.toObject().value("layers").toArray())
+                for (const QJsonValue &b : l.toObject().value("blocks").toArray()) {
+                    const QString blockId = b.toObject().value("block_id").toString();
+                    if (m_titles.contains(blockId))
+                        continue;
+                    m_titles.insert(blockId, QString()); // asked; the block events keep both current
+                    const QJsonObject target{{"session_id", sessionId}, {"block_id", blockId}, {"args", QJsonObject{}}};
+                    host->rex->call("com.superlogical.terminal.title", target,
+                                    [this, blockId](const QJsonObject &result, const QJsonObject &) {
+                        const QString title = result.value("title").toString();
+                        if (!title.isEmpty()) {
+                            m_titles.insert(blockId, title);
+                            rebuildSessions();
+                        }
+                    });
+                    // A status reported before orex connected comes only from here.
+                    host->rex->call("com.superlogical.terminal.program_status", target,
+                                    [this, blockId](const QJsonObject &result, const QJsonObject &) {
+                        const QJsonArray records = result.value("records").toArray();
+                        if (!records.isEmpty()) {
+                            m_programStatus.insert(blockId, records.first().toObject().value("state").toString());
+                            rebuildSessions();
+                        }
+                    });
+                }
+        rebuildSessions();
+    });
 }
 
 void Workspace::pickSession(Host *host) {
@@ -296,7 +373,20 @@ void Workspace::selectSession(const QString &sessionId) {
             return setStatus(error.value("message").toString());
         setStatus(QString());
         applyView(view.contains("view") ? view.value("view").toObject() : view);
+        if (!m_pendingFocus.isEmpty())
+            m_rex->call("session.focus_block", {{"session_id", sessionId}, {"block_id", std::exchange(m_pendingFocus, {})}});
     });
+}
+
+void Workspace::focusPane(const QString &sessionId, const QString &blockId) {
+    if (sessionId == m_sessionId) {
+        if (m_rex)
+            m_rex->call("session.focus_block", {{"session_id", m_sessionId}, {"block_id", blockId}});
+        return;
+    }
+    // Focusing needs the session attached, which selecting it starts.
+    m_pendingFocus = blockId;
+    selectSession(sessionId);
 }
 
 void Workspace::selectWindow(const QString &windowId) {
@@ -318,7 +408,7 @@ void Workspace::stepWindow(int delta) {
 void Workspace::stepSession(int delta) {
     QStringList ids;
     for (const QVariant &s : std::as_const(m_sessions))
-        if (!s.toMap().value("placeholder").toBool())
+        if (s.toMap().value("kind").toString() == "session")
             ids.append(s.toMap().value("session_id").toString());
     if (ids.isEmpty())
         return;
@@ -351,12 +441,29 @@ void Workspace::onEvent(Host *host, const QJsonObject &event) {
         const QString innerType = inner.value("type").toString();
         if (innerType == "session_label_changed") {
             refreshSessions(host);
-        } else if (innerType == "session_view_changed" && host == m_host &&
-                   payload.value("session_id").toString() == m_sessionId) {
+        } else if (innerType == "session_view_changed") {
+            const QString sessionId = payload.value("session_id").toString();
+            const qint64 revision = inner.value("payload").toObject().value("revision").toInteger();
             // Changes can arrive out of order; only a newer revision means
             // the view we hold is stale.
-            if (inner.value("payload").toObject().value("revision").toInteger() > m_revision)
+            if (revision > host->views.value(sessionId).value("revision").toInteger())
+                fetchSessionView(host, sessionId);
+            if (host == m_host && sessionId == m_sessionId && revision > m_revision)
                 fetchView();
+        } else if (innerType == "block_event") {
+            const QJsonObject block = inner.value("payload").toObject();
+            const QString name = block.value("name").toString();
+            const QString blockId = block.value("block_id").toString();
+            if (name == "title_changed") {
+                m_titles.insert(blockId, block.value("payload").toObject().value("title").toString());
+                rebuildSessions();
+            } else if (name == "program_status_changed") {
+                m_programStatus.insert(blockId, block.value("payload").toObject().value("record").toObject().value("state").toString());
+                rebuildSessions();
+            } else if (name == "program_status_removed") {
+                m_programStatus.remove(blockId);
+                rebuildSessions();
+            }
         }
     }
 }

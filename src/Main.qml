@@ -114,37 +114,88 @@ ApplicationWindow {
                     opacity: 0.5
                 }
                 delegate: Rectangle {
+                    id: row
                     required property var modelData
+                    readonly property string kind: modelData.kind ?? "session"
+                    readonly property bool isPane: kind === "pane"
+                    readonly property bool placeholder: kind === "placeholder"
                     readonly property bool current: modelData.session_id === backend.currentSession
                                                     && modelData.host === backend.currentHost
-                    readonly property bool placeholder: modelData.placeholder === true
+                    readonly property bool hasSubtitle: !isPane && (modelData.subtitle ?? "").length > 0
                     width: ListView.view.width
-                    height: 34
-                    color: current ? theme.selection
+                    height: isPane ? 26 : (hasSubtitle ? 46 : 34)
+                    color: current && !isPane ? theme.selection
                          : (hover.hovered && !placeholder ? Qt.lighter(theme.background, 1.3) : "transparent")
 
                     Rectangle {
                         width: 3
                         height: parent.height
                         color: Material.accent
-                        visible: parent.current
+                        visible: row.current && !row.isPane
                     }
-                    Label {
+
+                    // A program's status from OSC 7501, such as Claude Code
+                    // working or waiting on you.
+                    // Working breathes in the accent, blocked is a ringed red
+                    // that waits for you, done is a still green.
+                    Rectangle {
+                        id: dot
+                        readonly property string status: row.modelData.status ?? ""
+                        visible: status.length > 0 && status !== "idle"
+                        width: status === "blocked" ? 9 : 7
+                        height: width
+                        radius: width / 2
+                        x: (row.isPane ? 26 : 182) - width / 2
+                        y: row.isPane ? (row.height - height) / 2 : 15 - height / 2
+                        color: status === "blocked" ? theme.red : status === "done" ? theme.green : Material.accent
+                        border.width: status === "blocked" ? 2 : 0
+                        border.color: Qt.lighter(theme.red, 1.5)
+                        SequentialAnimation on opacity {
+                            running: dot.visible && dot.status === "working"
+                            loops: Animation.Infinite
+                            NumberAnimation { to: 0.25; duration: 700; easing.type: Easing.InOutSine }
+                            NumberAnimation { to: 1; duration: 700; easing.type: Easing.InOutSine }
+                            onRunningChanged: if (!running) dot.opacity = 1
+                        }
+                    }
+
+                    Column {
                         anchors.verticalCenter: parent.verticalCenter
-                        x: 14
-                        width: parent.width - 20
-                        elide: Text.ElideRight
-                        text: modelData.label
-                        color: theme.foreground
-                        font.italic: parent.placeholder
-                        font.pixelSize: parent.placeholder ? 12 : 14
-                        opacity: parent.current ? 1 : (parent.placeholder ? 0.4 : 0.65)
+                        x: row.isPane ? 36 : 14
+                        width: parent.width - x - (row.isPane ? 8 : 24)
+                        spacing: 1
+                        Label {
+                            width: parent.width
+                            elide: Text.ElideRight
+                            text: row.modelData.label
+                            color: theme.foreground
+                            font.italic: row.placeholder
+                            font.pixelSize: row.isPane ? 12 : (row.placeholder ? 12 : 14)
+                            font.bold: row.isPane && row.current && row.modelData.focused
+                            opacity: row.placeholder ? 0.4
+                                   : row.isPane ? (row.current && row.modelData.focused ? 0.95 : 0.6)
+                                   : (row.current ? 1 : 0.65)
+                        }
+                        Label {
+                            visible: row.hasSubtitle
+                            width: parent.width
+                            elide: Text.ElideRight
+                            text: row.modelData.subtitle ?? ""
+                            color: theme.foreground
+                            font.pixelSize: 11
+                            opacity: 0.5
+                        }
                     }
                     HoverHandler { id: hover }
-                    ToolTip.visible: hover.hovered && (modelData.detail ?? "").length > 0
-                    ToolTip.text: modelData.detail ?? ""
-                    ToolTip.delay: 500
-                    TapHandler { enabled: !parent.placeholder; onTapped: backend.selectSession(modelData.session_id) }
+                    ToolTip.visible: hover.hovered && (row.modelData.detail ?? row.modelData.label ?? "").length > 0
+                                     && (row.placeholder || row.isPane)
+                    ToolTip.text: row.modelData.detail ?? row.modelData.label ?? ""
+                    ToolTip.delay: 600
+                    TapHandler {
+                        enabled: !row.placeholder
+                        onTapped: row.isPane ? backend.focusPane(row.modelData.session_id, row.modelData.block_id)
+                                             : backend.selectSession(row.modelData.session_id)
+                    }
                 }
             }
         }
@@ -408,7 +459,7 @@ ApplicationWindow {
         property string mode: "actions"
         property var items: mode === "actions"
             ? backend.actions.filter(a => a.id !== "palette")
-            : backend.sessions.filter(s => !s.placeholder)
+            : backend.sessions.filter(s => s.kind === "session")
                 .map(s => ({ id: s.session_id, title: s.label, shortcut: s.host === "local" ? "" : s.host_label }))
         readonly property var shown: items.filter(i => i.title.toLowerCase().includes(query.text.toLowerCase()))
 
