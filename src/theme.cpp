@@ -84,6 +84,24 @@ QString Theme::accentForeground() const {
     return luminance > .179 ? "black" : "white";
 }
 
+// WCAG contrast ratio between two colors.
+static double contrast(const QColor &a, const QColor &b) {
+    auto luminance = [](const QColor &c) {
+        auto linear = [](double v) { return v <= .04045 ? v / 12.92 : std::pow((v + .055) / 1.055, 2.4); };
+        return .2126 * linear(c.redF()) + .7152 * linear(c.greenF()) + .0722 * linear(c.blueF());
+    };
+    const double la = luminance(a), lb = luminance(b);
+    return (qMax(la, lb) + 0.05) / (qMin(la, lb) + 0.05);
+}
+
+QString Theme::surface() const {
+    const QColor fg(foreground()), sel(selection()), bg(background());
+    if (contrast(fg, sel) >= 3)
+        return selection();
+    const auto mix = [](double a, double b) { return a + (b - a) * 0.2; };
+    return QColor::fromRgbF(mix(bg.redF(), fg.redF()), mix(bg.greenF(), fg.greenF()), mix(bg.blueF(), fg.blueF())).name();
+}
+
 QJsonObject Theme::terminalTheme() const {
     if (!m_colors.contains("background"))
         return {};

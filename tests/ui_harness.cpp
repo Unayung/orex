@@ -120,6 +120,15 @@ int main(int argc, char *argv[]) {
             static int n = 0;
             window->grabWindow().save(QStringLiteral("%1/hover-%2.png").arg(qEnvironmentVariable("OREX_HOVER_DIR", "/tmp")).arg(++n));
         });
+    // Adds remote hosts on a schedule, "ms:label|address;…", printing the result.
+    QObject::connect(&workspace, &Workspace::hostAddFinished, [](bool ok, const QString &message) {
+        qInfo() << "hostAddFinished" << ok << message;
+    });
+    for (const QString &step : qEnvironmentVariable("OREX_ADDHOST").split(';', Qt::SkipEmptyParts))
+        QTimer::singleShot(step.section(':', 0, 0).toInt(), [&workspace, what = step.section(':', 1)] {
+            qInfo() << "addRemoteHost" << what;
+            workspace.addRemoteHost(what.section('|', 0, 0), what.section('|', 1));
+        });
     for (int i = 1; i <= shots; ++i)
         QTimer::singleShot(i * 2000, [=, &workspace, &app] {
             window->grabWindow().save(QStringLiteral("%1-%2.png").arg(prefix).arg(i));

@@ -23,6 +23,7 @@ ApplicationWindow {
         else if (id === "session.switch") picker.show("sessions")
         else if (id === "help") help.open()
         else if (id === "sidebar.toggle") sidebar.open = !sidebar.open
+        else if (id === "host.add") addHost.begin()
         else if (id === "tab.rename") rename.ask(id, qsTr("Rename Tab"), backend.windows.find(w => w.window_id === backend.activeWindow)?.label ?? "")
         else if (id === "session.rename") rename.ask(id, qsTr("Rename Session"), backend.sessions.find(s => s.session_id === backend.currentSession)?.label ?? "")
         else backend.perform(id)
@@ -79,7 +80,7 @@ ApplicationWindow {
         // Centered on the pointer, kept inside the window.
         y: Math.round(Math.max(4, Math.min(window.height - height - 4, pointerY - height / 2)))
         radius: Math.min(6, theme.radius)
-        color: tabHover.hovered ? Material.accent : Qt.lighter(theme.selection, 1.3)
+        color: tabHover.hovered ? Material.accent : Qt.lighter(theme.surface, 1.3)
         border.color: Material.accent
         Behavior on x { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
         Label {
@@ -168,7 +169,7 @@ ApplicationWindow {
                     readonly property bool hasSubtitle: !isPane && (modelData.subtitle ?? "").length > 0
                     width: ListView.view.width
                     height: isPane ? 26 : (hasSubtitle ? 46 : 34)
-                    color: current && !isPane ? theme.selection
+                    color: current && !isPane ? theme.surface
                          : (hover.hovered && !placeholder ? Qt.lighter(theme.background, 1.3) : "transparent")
 
                     Rectangle {
@@ -342,9 +343,9 @@ ApplicationWindow {
                             // Above the divider it sits on, so grabbing the grip
                             // moves the pane and the rest of the line resizes.
                             z: modelData.z + 0.9
-                            color: lit ? Material.accent : Qt.lighter(theme.selection, 1.7)
+                            color: lit ? Material.accent : Qt.lighter(theme.surface, 1.7)
                             border.width: 1
-                            border.color: lit ? Material.accent : Qt.lighter(theme.selection, 2.4)
+                            border.color: lit ? Material.accent : Qt.lighter(theme.surface, 2.4)
 
                             // A grip, so it reads as something to drag.
                             Label {
@@ -449,7 +450,7 @@ ApplicationWindow {
                             border.width: 1
                             // The panes inside draw their own borders, and the
                             // focused one shows the accent, so the frame stays quiet.
-                            border.color: Qt.lighter(theme.selection, 1.6)
+                            border.color: Qt.lighter(theme.surface, 1.6)
                             radius: Math.min(4, theme.radius)
                             // The terminals aren't children of the frame, so
                             // carry them along while it's dragged.
@@ -522,7 +523,7 @@ ApplicationWindow {
                             width: chipLabel.implicitWidth + 24
                             height: 28
                             radius: Math.min(6, theme.radius)
-                            color: chipHover.hovered ? Qt.lighter(theme.selection, 1.4) : theme.selection
+                            color: chipHover.hovered ? Qt.lighter(theme.surface, 1.4) : theme.surface
                             border.color: Material.accent
                             Label {
                                 id: chipLabel
@@ -573,7 +574,7 @@ ApplicationWindow {
         modal: true
         Overlay.modal: Rectangle { color: "#99000000" }
         padding: 8
-        background: Rectangle { color: Qt.lighter(theme.background, 1.2); radius: Math.min(8, theme.radius); border.color: theme.selection }
+        background: Rectangle { color: Qt.lighter(theme.background, 1.2); radius: Math.min(8, theme.radius); border.color: theme.surface }
 
         ColumnLayout {
             anchors.fill: parent
@@ -625,6 +626,83 @@ ApplicationWindow {
         }
     }
 
+    // Adds a Rex server on another machine, after checking it answers.
+    Dialog {
+        id: addHost
+        property bool testing: false
+        property string problem: ""
+        function begin() { hostName.text = ""; hostAddress.text = ""; problem = ""; testing = false; open(); hostName.forceActiveFocus() }
+        function submit() { if (testing) return; problem = ""; testing = true; backend.addRemoteHost(hostName.text, hostAddress.text) }
+        title: qsTr("Add Remote Host")
+        anchors.centerIn: Overlay.overlay
+        width: 460
+        modal: true
+        Overlay.modal: Rectangle { color: "#99000000" }
+        closePolicy: testing ? Popup.NoAutoClose : Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        Connections {
+            target: backend
+            function onHostAddFinished(ok, message) {
+                addHost.testing = false
+                if (ok) addHost.close()
+                else addHost.problem = message
+            }
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 6
+            TextField {
+                id: hostName
+                Layout.fillWidth: true
+                placeholderText: qsTr("Name, such as m5")
+                enabled: !addHost.testing
+                onAccepted: hostAddress.forceActiveFocus()
+            }
+            TextField {
+                id: hostAddress
+                Layout.fillWidth: true
+                placeholderText: qsTr("Address, such as https://mac.tail1234.ts.net")
+                enabled: !addHost.testing
+                onAccepted: addHost.submit()
+            }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                font.pixelSize: 12
+                opacity: 0.6
+                text: qsTr("A Rex server on your tailnet: its https:// address, or just the host name.")
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: addHost.problem.length > 0
+                wrapMode: Text.Wrap
+                text: addHost.problem
+                color: theme.red
+            }
+        }
+
+        footer: DialogButtonBox {
+            Button {
+                text: addHost.testing ? qsTr("Connecting…") : qsTr("Add")
+                enabled: !addHost.testing && hostName.text.trim().length > 0 && hostAddress.text.trim().length > 0
+                onClicked: addHost.submit()
+                BusyIndicator {
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 20; height: 20
+                    running: addHost.testing
+                    visible: running
+                }
+            }
+            Button {
+                text: qsTr("Cancel")
+                enabled: !addHost.testing
+                onClicked: addHost.close()
+            }
+        }
+    }
+
     // Every shortcut, as the Omarchy convention asks.
     Popup {
         id: help
@@ -634,7 +712,7 @@ ApplicationWindow {
         modal: true
         Overlay.modal: Rectangle { color: "#99000000" }
         padding: 16
-        background: Rectangle { color: Qt.lighter(theme.background, 1.2); radius: Math.min(8, theme.radius); border.color: theme.selection }
+        background: Rectangle { color: Qt.lighter(theme.background, 1.2); radius: Math.min(8, theme.radius); border.color: theme.surface }
         ListView {
             anchors.fill: parent
             clip: true

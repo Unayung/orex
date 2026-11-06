@@ -17,6 +17,11 @@ class Theme : public QObject {
     Q_PROPERTY(QString background READ background NOTIFY changed)
     Q_PROPERTY(QString foreground READ foreground NOTIFY changed)
     Q_PROPERTY(QString selection READ selection NOTIFY changed)
+    // A highlight that text in the foreground color reads on: the theme's
+    // selection when it contrasts with the foreground, else a blend of
+    // background and foreground. Some themes pick a light selection meant
+    // for dark text, which light foreground text can't sit on.
+    Q_PROPERTY(QString surface READ surface NOTIFY changed)
     // The palette's red and green, for status marks that must not look like
     // the accent.
     Q_PROPERTY(QString red READ red NOTIFY changed)
@@ -32,6 +37,7 @@ public:
     QString background() const { return color("background", "#101010"); }
     QString foreground() const { return color("foreground", "#e0e0e0"); }
     QString selection() const { return color("selection", "#3a3a3a"); }
+    QString surface() const;
     QString red() const { return color("color1", "#e06c75"); }
     QString green() const { return color("color2", "#7fbf7f"); }
     int radius() const { return m_radius; }

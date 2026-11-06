@@ -6,6 +6,8 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSettings>
+#include <QSysInfo>
+#include <QUuid>
 #include <QRectF>
 #include <QUrl>
 #include <memory>
@@ -88,7 +90,7 @@ Workspace::Workspace(Theme *theme, QObject *parent) : QObject(parent), m_theme(t
             if (pane.stream)
                 pane.stream->setTheme(m_theme->terminalTheme());
             if (pane.terminal)
-                pane.terminal->setSelectionColor(QColor(m_theme->selection()));
+                pane.terminal->setSelectionColor(QColor(m_theme->surface()));
         }
     });
 }
@@ -651,7 +653,7 @@ void Workspace::layoutPanes() {
         if (!pane.stream) {
             pane.terminal = new TerminalItem(m_area);
             pane.border = new PaneBorder(m_area);
-            pane.terminal->setSelectionColor(QColor(m_theme->selection()));
+            pane.terminal->setSelectionColor(QColor(m_theme->surface()));
             pane.stream = new BlockStream(m_rex, m_sessionId, blockId, pane.terminal, this);
             pane.stream->setTheme(m_theme->terminalTheme());
             connect(pane.stream, &BlockStream::ended, this, [this](const QString &reason) {
@@ -701,7 +703,7 @@ void Workspace::layoutPanes() {
             // The focused pane stands out once there's more than one to tell apart.
             pane.border->setColor(blockId == focusedBlock && places.size() > 1
                                       ? QColor(m_theme->accent())
-                                      : QColor(m_theme->selection()).lighter(160));
+                                      : QColor(m_theme->surface()).lighter(160));
             pane.border->setVisible(true);
         }
         // Start after the first size is set, so the pty is claimed at the
@@ -822,6 +824,7 @@ QVariantList Workspace::actions() const {
         {"pane.minimize_all_floating", QT_TR_NOOP("Minimize or Restore Floating Windows"), "Ctrl+Alt+Shift+Return"},
         {"sidebar.toggle", QT_TR_NOOP("Show or Hide Sessions"), "Ctrl+Shift+B"},
         {"focus.follows_mouse", QT_TR_NOOP("Focus Follows Mouse: Turn On or Off"), ""},
+        {"host.add", QT_TR_NOOP("Add Remote Host…"), ""},
         {"help", QT_TR_NOOP("Keyboard Shortcuts"), "Ctrl+Shift+/"},
     };
     QVariantList out;
@@ -1172,6 +1175,54 @@ void Workspace::dropPane(const QString &blockId, const QString &targetId, const 
                                        {"direction", sideways ? "horizontal" : "vertical"},
                                        {"side", zone == "left" || zone == "up" ? "before" : "after"}},
                 report);
+}
+
+void Workspace::addRemoteHost(const QString &label, const QString &address) {
+    const QString name = label.trimmed(), where = address.trimmed();
+    if (name.isEmpty() || where.isEmpty())
+        return emit hostAddFinished(false, tr("Give the host a name and an address."));
+    for (const Host *host : std::as_const(m_hosts))
+        if (host->label.compare(name, Qt::CaseInsensitive) == 0)
+            return emit hostAddFinished(false, tr("A host named “%1” already exists.").arg(name));
+    Host *local = m_hosts.value(0);
+    if (!local)
+        return emit hostAddFinished(false, tr("This machine's Rex server isn't connected."));
+
+    // A throwaway connection proves the address answers as a Rex server
+    // that lets us in, before anything is saved.
+    auto *probe = new RexClient(this);
+    auto *timeout = new QTimer(probe);
+    timeout->setSingleShot(true);
+    auto finish = [this, probe](bool ok, const QString &message) {
+        if (probe->property("done").toBool())
+            return;
+        probe->setProperty("done", true);
+        probe->deleteLater();
+        emit hostAddFinished(ok, message);
+    };
+    // A bare host name tries three endpoints at up to 5 seconds each.
+    timeout->start(20000);
+    connect(timeout, &QTimer::timeout, this, [finish, where] {
+        finish(false, tr("%1 didn't answer in time.").arg(where));
+    });
+    connect(probe, &RexClient::closed, this, [finish](const QString &reason) {
+        finish(false, tr("Couldn't connect: %1").arg(reason));
+    });
+    connect(probe, &RexClient::ready, this, [this, finish, local, name, where, probe] {
+        if (probe->property("done").toBool())
+            return;
+        const QJsonObject host{{"id", "host:" + QUuid::createUuidV7().toString(QUuid::WithoutBraces)},
+                               {"label", name},
+                               {"endpoints", QJsonArray{where}},
+                               {"added_from", QSysInfo::machineHostName()}};
+        local->rex->call("hosts.put", {{"host", host}}, [finish, name](const QJsonObject &, const QJsonObject &error) {
+            if (!error.isEmpty())
+                return finish(false, tr("Connected, but couldn't save the host: %1").arg(error.value("message").toString()));
+            // hosts_changed brings it into the sidebar.
+            finish(true, tr("Added %1.").arg(name));
+        });
+    });
+    probe->open(where);
 }
 
 void Workspace::resizeSplit(const QString &beforeBlock, const QString &afterBlock, bool sideBySide, qreal ratio) {

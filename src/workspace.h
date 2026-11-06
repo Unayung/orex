@@ -100,6 +100,10 @@ public:
     Q_INVOKABLE void dropPane(const QString &blockId, const QString &targetId, const QString &zone);
     // Moves the border of the split between `beforeBlock` and `afterBlock`
     // so the before side gets `ratio` of the space.
+    // Connects to `address` once to check it's a Rex server you can use,
+    // then adds it to this machine's host list, the one `rex hosts` shows.
+    // The answer comes back as hostAddFinished.
+    Q_INVOKABLE void addRemoteHost(const QString &label, const QString &address);
     Q_INVOKABLE void resizeSplit(const QString &beforeBlock, const QString &afterBlock, bool sideBySide, qreal ratio);
     Q_INVOKABLE void setLayerMinimized(const QString &layerId, bool minimized);
 
@@ -111,6 +115,7 @@ signals:
     void framesChanged();
     void paneSlotsChanged();
     void focusFollowsMouseChanged();
+    void hostAddFinished(bool ok, const QString &message);
 
 private:
     struct Host {
