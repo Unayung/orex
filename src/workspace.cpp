@@ -23,6 +23,13 @@ static constexpr qreal kPadding = 4;
 static constexpr qreal kFrame = 4;
 static constexpr qreal kTitleBar = 22;
 
+// Snaps a rect's edges to whole pixels. A terminal drawn at a fractional
+// position is resampled when it's composited, which blurs every glyph.
+static QRectF snapped(const QRectF &r) {
+    const qreal left = qRound(r.left()), top = qRound(r.top());
+    return QRectF(left, top, qRound(r.right()) - left, qRound(r.bottom()) - top);
+}
+
 // `px` minus half a gap on each edge that faces another pane. `local` is the
 // same rect as fractions of its container, which tells inner edges apart.
 static QRectF withGaps(const QRectF &px, const QRectF &local) {
@@ -446,7 +453,7 @@ void Workspace::layoutPanes() {
             // the rest of its bounds.
             const QJsonArray b = layer.value("bounds").toArray();
             const QRectF bounds(b.at(0).toDouble(), b.at(1).toDouble(), b.at(2).toDouble(), b.at(3).toDouble());
-            const QRectF frame(bounds.x() * w, bounds.y() * h, bounds.width() * w, bounds.height() * h);
+            const QRectF frame = snapped(QRectF(bounds.x() * w, bounds.y() * h, bounds.width() * w, bounds.height() * h));
             const QRectF inner = frame.adjusted(kFrame, kTitleBar, -kFrame, -kFrame);
             bool hasFocus = false;
             DraggedLayer &dragged = m_layerPanes[layerId];
@@ -457,7 +464,7 @@ void Workspace::layoutPanes() {
                 const QRectF px = withGaps(QRectF(inner.x() + local.x() * inner.width(), inner.y() + local.y() * inner.height(),
                                                   local.width() * inner.width(), local.height() * inner.height()), local);
                 places.append({blockId, px, index * 10.0 + 1});
-                dragged.panes.append({blockId, px.topLeft()});  // the slot, border included
+                dragged.panes.append({blockId, snapped(px).topLeft()});  // the slot, border included
                 m_placed.append({blockId, r});
                 hasFocus = hasFocus || blockId == focusedBlock;
             }
@@ -510,14 +517,15 @@ void Workspace::layoutPanes() {
         if (!pane.terminal)
             continue;
         const qreal inset = kBorder + kPadding;
-        const QRectF inner = place.px.adjusted(inset, inset, -inset, -inset);
+        const QRectF slot = snapped(place.px);
+        const QRectF inner = slot.adjusted(inset, inset, -inset, -inset);
         pane.terminal->setPosition(inner.topLeft());
         pane.terminal->setSize(inner.size());
         pane.terminal->setZ(place.z);
         pane.terminal->setVisible(true);
         if (pane.border) {
-            pane.border->setPosition(place.px.topLeft());
-            pane.border->setSize(place.px.size());
+            pane.border->setPosition(slot.topLeft());
+            pane.border->setSize(slot.size());
             pane.border->setZ(place.z + 0.5);
             // The focused pane stands out once there's more than one to tell apart.
             pane.border->setColor(blockId == focusedBlock && places.size() > 1
@@ -915,7 +923,8 @@ void Workspace::dragLayer(const QString &layerId, qreal x, qreal y) {
     const auto it = m_layerPanes.constFind(layerId);
     if (it == m_layerPanes.constEnd())
         return;
-    const QPointF offset = QPointF(x, y) - it->frame;
+    // Whole-pixel steps keep the text sharp while it moves.
+    const QPointF offset(qRound(x - it->frame.x()), qRound(y - it->frame.y()));
     for (const auto &[blockId, origin] : it->panes) {
         const Pane pane = m_panes.value(blockId);
         if (pane.terminal)

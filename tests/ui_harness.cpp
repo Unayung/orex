@@ -29,6 +29,10 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("backend", &workspace);
     engine.load(QUrl("qrc:/Main.qml"));
     auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    if (qEnvironmentVariableIsSet("OREX_SIZE")) {
+        const QStringList wh = qEnvironmentVariable("OREX_SIZE").split('x');
+        window->resize(wh.at(0).toInt(), wh.at(1).toInt());
+    }
     workspace.setPaneArea(window->findChild<QQuickItem *>("paneArea"));
     workspace.start(argv[1]);
     const QString prefix = argv[2];
@@ -99,6 +103,11 @@ int main(int argc, char *argv[]) {
     for (int i = 1; i <= shots; ++i)
         QTimer::singleShot(i * 2000, [=, &workspace, &app] {
             window->grabWindow().save(QStringLiteral("%1-%2.png").arg(prefix).arg(i));
+            if (qEnvironmentVariableIsSet("OREX_GEOMETRY"))
+                for (TerminalItem *t : window->findChildren<TerminalItem *>())
+                    if (t->isVisible())
+                        qInfo() << "terminal at" << t->x() << t->y() << t->width() << t->height()
+                                << "scene" << t->mapToScene(QPointF(0, 0));
             qInfo() << "shot" << i << "windows" << workspace.windows().size() << "status" << workspace.status();
             if (i == shots) { workspace.shutdown(); QTimer::singleShot(300, &app, &QCoreApplication::quit); }
         });
