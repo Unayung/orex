@@ -5,6 +5,7 @@
 // into the block over the control connection.
 
 #include <QByteArray>
+#include <QJsonObject>
 #include <QObject>
 #include <QPointer>
 
@@ -23,6 +24,9 @@ public:
     // The session must already be attached with session.attach.
     void start();
     void stop();
+    // Asks Rex to give the pty these default colors, as set_theme arguments.
+    // Rex applies them while this client owns the block.
+    void setTheme(const QJsonObject &theme);
 
     QString blockId() const { return m_blockId; }
 
@@ -52,6 +56,7 @@ private:
     QByteArray m_marker;
     QByteArray m_buffer;
 
+    QJsonObject m_theme;
     QByteArray m_unsentInput;
     bool m_writing = false;
 };

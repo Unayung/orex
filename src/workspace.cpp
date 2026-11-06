@@ -1,5 +1,6 @@
 #include "workspace.h"
 
+#include <QColor>
 #include <QJsonArray>
 #include <QQuickItem>
 #include <QRectF>
@@ -23,10 +24,25 @@ static void collectBlocks(const QJsonObject &node, QList<QPair<QString, QRectF>>
     collectBlocks(split.value("after").toObject(), out);
 }
 
-Workspace::Workspace(QObject *parent) : QObject(parent) {
+Workspace::Workspace(Theme *theme, QObject *parent) : QObject(parent), m_theme(theme) {
     connect(&m_rex, &RexClient::serverEvent, this, &Workspace::onEvent);
+    // A closed control connection usually means the Rex server restarted,
+    // for example after an update. Keep trying, and come back to the same
+    // session once it's up.
+    m_reconnect.setSingleShot(true);
+    m_reconnect.setInterval(2000);
+    connect(&m_reconnect, &QTimer::timeout, this, &Workspace::reconnect);
     connect(&m_rex, &RexClient::closed, this, [this](const QString &reason) {
-        setStatus(tr("Disconnected from Rex: %1").arg(reason));
+        setStatus(tr("Disconnected from Rex (%1). Reconnecting…").arg(reason));
+        m_reconnect.start();
+    });
+    connect(m_theme, &Theme::changed, this, [this] {
+        for (Pane &pane : m_panes) {
+            if (pane.stream)
+                pane.stream->setTheme(m_theme->terminalTheme());
+            if (pane.terminal)
+                pane.terminal->setSelectionColor(QColor(m_theme->selection()));
+        }
     });
     connect(&m_rex, &RexClient::ready, this, [this] {
         // Session-wide events keep the session list current; block output
@@ -63,6 +79,19 @@ Workspace::~Workspace() { closeAllPanes(); }
 void Workspace::start(const QString &wanted) {
     m_wanted = wanted;
     setStatus(tr("Connecting to Rex…"));
+    m_rex.open(RexClient::defaultSocketPath());
+}
+
+void Workspace::reconnect() {
+    // Every stream and attachment died with the connection, so rebuild them,
+    // returning to the session that was on screen.
+    closeAllPanes();
+    if (!m_sessionId.isEmpty())
+        m_wanted = m_sessionId;
+    m_sessionId.clear();
+    m_view = {};
+    m_revision = -1;
+    emit viewChanged();
     m_rex.open(RexClient::defaultSocketPath());
 }
 
@@ -243,7 +272,9 @@ void Workspace::layoutPanes() {
         Pane &pane = m_panes[blockId];
         if (!pane.stream) {
             pane.terminal = new TerminalItem(m_area);
+            pane.terminal->setSelectionColor(QColor(m_theme->selection()));
             pane.stream = new BlockStream(&m_rex, m_sessionId, blockId, pane.terminal, this);
+            pane.stream->setTheme(m_theme->terminalTheme());
             connect(pane.stream, &BlockStream::ended, this, [this](const QString &reason) {
                 setStatus(tr("A pane's stream ended: %1").arg(reason));
             });

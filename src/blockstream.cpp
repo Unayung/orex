@@ -52,7 +52,17 @@ void BlockStream::start() {
                 [this](const QJsonObject &, const QJsonObject &) {
                     if (m_terminal && m_terminal->cols() > 0)
                         requestSize(m_terminal->cols(), m_terminal->rows());
+                    if (!m_theme.isEmpty())
+                        setTheme(m_theme);
                 });
+}
+
+void BlockStream::setTheme(const QJsonObject &theme) {
+    m_theme = theme;
+    if (theme.isEmpty())
+        return;
+    m_rex->call("com.superlogical.terminal.set_theme",
+                {{"session_id", m_sessionId}, {"block_id", m_blockId}, {"args", theme}});
 }
 
 void BlockStream::stop() {
@@ -121,10 +131,14 @@ void BlockStream::handleRexMessage(const QByteArray &json) {
     if (type == "resize") {
         if (m_terminal)
             m_terminal->resizeGrid(message.value("cols").toInt(), message.value("rows").toInt());
+    } else if (type == "theme") {
+        // Rex echoes the pty's colors, whoever set them, so the pane always
+        // draws what programs in it see when they ask.
+        if (m_terminal)
+            m_terminal->setTheme(message);
     } else if (type == "child_exited") {
         emit childExited(message.value("exit_code").toInt());
     }
-    // ponytail: "theme" is skipped; orex draws with its own colors until M3.
 }
 
 void BlockStream::sendInput(const QByteArray &bytes) {

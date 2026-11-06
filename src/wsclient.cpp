@@ -21,6 +21,12 @@ WsClient::WsClient(QObject *parent) : QObject(parent) {
 }
 
 void WsClient::open(const QString &socketPath, const QString &path, const QString &subprotocol) {
+    // The same object is reused to reconnect, so start from a clean slate.
+    m_socket.abort();
+    m_buffer.clear();
+    m_message.clear();
+    m_upgraded = false;
+    m_closed = false;
     QByteArray key(16, Qt::Uninitialized);
     QRandomGenerator::system()->fillRange(reinterpret_cast<quint32 *>(key.data()), 4);
     m_request = "GET " + path.toUtf8() + " HTTP/1.1\r\n"

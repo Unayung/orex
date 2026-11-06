@@ -9,9 +9,12 @@ ApplicationWindow {
     height: 800
     visible: true
     title: "orex"
-    color: "#101010"
+    color: theme.background
     Material.theme: Material.Dark
-    Material.accent: "#FFD60A"
+    Material.accent: theme.accent
+    Material.background: theme.background
+    Material.foreground: theme.foreground
+    Material.roundedScale: theme.radius
 
     // Ctrl+Shift chords, so plain keys and Ctrl keys still reach the program
     // in the terminal.
@@ -29,7 +32,7 @@ ApplicationWindow {
             id: sidebar
             Layout.preferredWidth: 200
             Layout.fillHeight: true
-            color: "#161616"
+            color: Qt.darker(theme.background, 1.25)
 
             ListView {
                 anchors.fill: parent
@@ -40,7 +43,7 @@ ApplicationWindow {
                     readonly property bool current: modelData.session_id === backend.currentSession
                     width: ListView.view.width
                     height: 36
-                    color: current ? "#262626" : (hover.hovered ? "#1e1e1e" : "transparent")
+                    color: current ? theme.selection : (hover.hovered ? Qt.lighter(theme.background, 1.3) : "transparent")
 
                     Rectangle {
                         width: 3
@@ -54,7 +57,8 @@ ApplicationWindow {
                         width: parent.width - 20
                         elide: Text.ElideRight
                         text: modelData.label
-                        color: parent.current ? "#ffffff" : "#a0a0a0"
+                        color: theme.foreground
+                        opacity: parent.current ? 1 : 0.65
                     }
                     HoverHandler { id: hover }
                     TapHandler { onTapped: backend.selectSession(modelData.session_id) }
@@ -95,7 +99,7 @@ ApplicationWindow {
 
                 Rectangle {
                     anchors.fill: parent
-                    color: "#2a2a2a" // shows through the gaps between panes
+                    color: theme.selection // shows through the gaps between panes
                 }
 
                 Item {
@@ -108,9 +112,9 @@ ApplicationWindow {
                     anchors.centerIn: parent
                     visible: backend.status.length > 0
                     text: backend.status
-                    color: "#c0c0c0"
+                    color: theme.foreground
                     padding: 12
-                    background: Rectangle { color: "#202020"; radius: 4 }
+                    background: Rectangle { color: Qt.lighter(theme.background, 1.4); radius: Math.min(4, theme.radius) }
                 }
             }
         }

@@ -12,7 +12,8 @@ HEADERS += \
     src/rexclient.h \
     src/blockstream.h \
     src/terminalitem.h \
-    src/workspace.h
+    src/workspace.h \
+    src/theme.h
 
 SOURCES += \
     src/main.cpp \
@@ -20,6 +21,7 @@ SOURCES += \
     src/rexclient.cpp \
     src/blockstream.cpp \
     src/terminalitem.cpp \
-    src/workspace.cpp
+    src/workspace.cpp \
+    src/theme.cpp
 
 RESOURCES += src/resources.qrc

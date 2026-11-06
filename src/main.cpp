@@ -8,6 +8,7 @@
 #include <QUrl>
 
 #include "terminalitem.h"
+#include "theme.h"
 #include "workspace.h"
 
 int main(int argc, char *argv[]) {
@@ -19,8 +20,10 @@ int main(int argc, char *argv[]) {
 
     qmlRegisterType<TerminalItem>("Orex", 1, 0, "TerminalItem");
 
-    Workspace workspace;
+    Theme theme;
+    Workspace workspace(&theme);
     QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("theme", &theme);
     engine.rootContext()->setContextProperty("backend", &workspace);
     engine.load(QUrl("qrc:/Main.qml"));
     if (engine.rootObjects().isEmpty())

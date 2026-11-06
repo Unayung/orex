@@ -9,9 +9,11 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QPointer>
+#include <QTimer>
 #include <QVariantList>
 
 #include "rexclient.h"
+#include "theme.h"
 
 class BlockStream;
 class QQuickItem;
@@ -26,7 +28,7 @@ class Workspace : public QObject {
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
 
 public:
-    explicit Workspace(QObject *parent = nullptr);
+    explicit Workspace(Theme *theme, QObject *parent = nullptr);
     ~Workspace() override;
 
     QVariantList sessions() const { return m_sessions; }
@@ -72,7 +74,11 @@ private:
     void closeAllPanes();
     void setStatus(const QString &status);
 
+    void reconnect();
+
+    Theme *m_theme;
     RexClient m_rex;
+    QTimer m_reconnect;
     QString m_wanted;
     QVariantList m_sessions;
     QString m_sessionId;

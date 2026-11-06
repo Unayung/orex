@@ -4,6 +4,8 @@
 // about Rex: something else feeds it bytes and carries its input away.
 
 #include <QByteArray>
+#include <QColor>
+#include <QJsonObject>
 #include <QQuickPaintedItem>
 
 typedef struct GhosttyTerminalImpl *GhosttyTerminal;
@@ -13,6 +15,9 @@ class TerminalItem : public QQuickPaintedItem {
     QML_ELEMENT
     Q_PROPERTY(int cols READ cols NOTIFY gridSizeChanged)
     Q_PROPERTY(int rows READ rows NOTIFY gridSizeChanged)
+    // The background of selected cells. Left unset, selected cells swap
+    // their foreground and background instead.
+    Q_PROPERTY(QColor selectionColor READ selectionColor WRITE setSelectionColor NOTIFY selectionColorChanged)
 
 public:
     explicit TerminalItem(QQuickItem *parent = nullptr);
@@ -20,6 +25,9 @@ public:
 
     int cols() const;
     int rows() const;
+
+    QColor selectionColor() const;
+    void setSelectionColor(const QColor &color);
 
     // Replaces the terminal with one restored from a Ghostty snapshot
     // (the bytes starting with "GHOSTSNP"). Returns false if it can't be read.
@@ -32,6 +40,13 @@ public:
     // local terminal follows this rather than the item's geometry.
     Q_INVOKABLE void resizeGrid(int cols, int rows);
 
+    // Rex's "theme" message: default foreground, background and cursor as
+    // RRGGBB or #RRGGBB, and "palette" as "index=RRGGBB" changes to the
+    // 256-color palette. A color left out is the built-in one, and each
+    // call replaces the theme before it. A restored snapshot keeps its own
+    // colors until the next call; Rex sends a theme after each snapshot.
+    Q_INVOKABLE void setTheme(const QJsonObject &theme);
+
     void paint(QPainter *painter) override;
 
 signals:
@@ -40,6 +55,7 @@ signals:
     // The cols and rows that fit the item at its current size and font.
     // The owner of the pty asks the server for this size.
     void gridSizeChanged(int cols, int rows);
+    void selectionColorChanged();
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
@@ -50,6 +66,11 @@ protected:
     void focusInEvent(QFocusEvent *event) override;
     void focusOutEvent(QFocusEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
+    void hoverMoveEvent(QHoverEvent *event) override;
+    void wheelEvent(QWheelEvent *event) override;
 
 private:
     struct Private;

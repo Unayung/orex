@@ -12,14 +12,17 @@
 #include <QTimer>
 
 #include "../src/terminalitem.h"
+#include "../src/theme.h"
 #include "../src/workspace.h"
 
 int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
     QQuickStyle::setStyle("Material");
     qmlRegisterType<TerminalItem>("Orex", 1, 0, "TerminalItem");
-    Workspace workspace;
+    Theme theme;
+    Workspace workspace(&theme);
     QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("theme", &theme);
     engine.rootContext()->setContextProperty("backend", &workspace);
     engine.load(QUrl("qrc:/Main.qml"));
     auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
