@@ -79,6 +79,15 @@ right away.
 
 ![The settings panel](docs/settings.png)
 
+## Themes
+
+orex takes its colors from the current Omarchy theme and follows it while it
+runs. Switch themes and the session list, tabs, pane borders, status colors, and
+the terminals change with it, light themes included. Corners follow Hyprland's
+rounding. Without Omarchy, orex uses a dark default.
+
+![orex in tokyo-night, gruvbox, rose-pine, and catppuccin-latte](docs/themes.png)
+
 ## Build
 
 orex needs Qt 6 (base, declarative, wayland) and the `ghostty` package, which
