@@ -545,7 +545,9 @@ ApplicationWindow {
                         MenuItem { text: qsTr("Paste"); onTriggered: paneMenu.run("pane.paste") }
                         MenuSeparator {}
                         MenuItem { text: qsTr("Split Right"); onTriggered: paneMenu.run("pane.split.right") }
+                        MenuItem { text: qsTr("Split Left"); onTriggered: paneMenu.run("pane.split.left") }
                         MenuItem { text: qsTr("Split Down"); onTriggered: paneMenu.run("pane.split.down") }
+                        MenuItem { text: qsTr("Split Up"); onTriggered: paneMenu.run("pane.split.up") }
                         MenuSeparator {}
                         MenuItem { text: paneMenu.floating ? qsTr("Dock") : qsTr("Float"); onTriggered: paneMenu.run("pane.float") }
                         MenuItem { text: paneMenu.zoomed ? qsTr("Unzoom") : qsTr("Zoom"); onTriggered: paneMenu.run("pane.zoom") }
