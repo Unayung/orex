@@ -104,6 +104,9 @@ public:
     Q_INVOKABLE void focusPane(const QString &sessionId, const QString &blockId);
     // Turns a session's desktop notifications off or back on. Remembered.
     Q_INVOKABLE void toggleMute(const QString &hostKey, const QString &sessionId);
+    // Renames a session, or one of its tabs when windowId is set, on
+    // whichever host has it, so the list can rename what isn't showing.
+    Q_INVOKABLE void rename(const QString &sessionId, const QString &windowId, const QString &label);
     // Shows a session with one of its tabs in front.
     Q_INVOKABLE void focusTab(const QString &sessionId, const QString &windowId);
     Q_INVOKABLE void selectWindow(const QString &windowId);

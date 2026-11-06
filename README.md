@@ -60,6 +60,7 @@ its status still shows in orex.
 
 Right-click a pane for copy, paste, split, float, zoom, and close; they act on
 that pane. Click a pane to focus it. Everything else goes to the program in the pane.
+Right-click a session or tab in the list to rename it.
 
 ![The right-click menu of a pane](docs/menu.png)
 

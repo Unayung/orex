@@ -392,6 +392,18 @@ ApplicationWindow {
                                 : row.isTab ? backend.focusTab(row.modelData.session_id, row.modelData.window_id)
                                 : backend.selectSession(row.modelData.session_id)
                     }
+                    TapHandler {
+                        id: rightTap
+                        enabled: row.isSession || row.isTab
+                        acceptedButtons: Qt.RightButton
+                        onTapped: {
+                            listMenu.sessionId = row.modelData.session_id
+                            listMenu.windowId = row.isTab ? row.modelData.window_id : ""
+                            listMenu.label = row.modelData.label ?? ""
+                            // Where the click was: Wayland gives no global cursor position.
+                            listMenu.popup(row, rightTap.point.position.x, rightTap.point.position.y)
+                        }
+                    }
                 }
             }
         }
@@ -921,17 +933,42 @@ ApplicationWindow {
         }
     }
 
+    // Right-click menu for a session or tab in the list.
+    Menu {
+        id: listMenu
+        property string sessionId
+        property string windowId
+        property string label
+        background: Rectangle {
+            implicitWidth: 200
+            color: Qt.lighter(theme.background, 1.6)
+            border.color: theme.surface
+            radius: Math.min(6, theme.radius)
+        }
+        MenuItem {
+            text: listMenu.windowId ? qsTr("Rename Tab…") : qsTr("Rename Session…")
+            onTriggered: rename.ask("", listMenu.windowId ? qsTr("Rename Tab") : qsTr("Rename Session"),
+                                    listMenu.label, listMenu.sessionId, listMenu.windowId)
+        }
+    }
+
     // Asks for a new name for a tab or session.
     Dialog {
         id: rename
         property string action
-        function ask(id, heading, current) { action = id; title = heading; field.text = current; open(); field.selectAll(); field.forceActiveFocus() }
+        // Set when the list asked: rename that session or tab, not the current one.
+        property string sessionId
+        property string windowId
+        function ask(id, heading, current, session, tab) {
+            action = id; sessionId = session ?? ""; windowId = tab ?? ""
+            title = heading; field.text = current; open(); field.selectAll(); field.forceActiveFocus()
+        }
         anchors.centerIn: Overlay.overlay
         width: 380
         modal: true
         Overlay.modal: Rectangle { color: "#99000000" }
         standardButtons: Dialog.Ok | Dialog.Cancel
-        onAccepted: backend.perform(action, field.text)
+        onAccepted: sessionId ? backend.rename(sessionId, windowId, field.text) : backend.perform(action, field.text)
         TextField {
             id: field
             width: parent.width

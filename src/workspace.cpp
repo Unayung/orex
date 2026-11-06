@@ -499,6 +499,20 @@ void Workspace::focusPane(const QString &sessionId, const QString &blockId) {
     selectSession(sessionId);
 }
 
+void Workspace::rename(const QString &sessionId, const QString &windowId, const QString &label) {
+    Host *host = hostOf(sessionId);
+    if (!host)
+        return;
+    QJsonObject payload{{"session_id", sessionId}, {"label", label}};
+    if (!windowId.isEmpty())
+        payload.insert("window_id", windowId);
+    host->rex->call(windowId.isEmpty() ? "session.set_label" : "session.set_window_label", payload,
+                    [this](const QJsonObject &, const QJsonObject &error) {
+        if (!error.isEmpty())
+            flashStatus(tr("Couldn't rename: %1").arg(error.value("message").toString()));
+    });
+}
+
 void Workspace::toggleMute(const QString &hostKey, const QString &sessionId) {
     const QString key = hostKey + "|" + sessionId;
     const bool muted = !m_muted.contains(key);
