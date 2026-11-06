@@ -251,9 +251,23 @@ ApplicationWindow {
                         }
                     }
 
+                    // The coding agent in the pane, such as Claude Code or Hermes.
+                    Image {
+                        id: agentIcon
+                        readonly property string url: row.modelData.icon ?? ""
+                        visible: url.length > 0
+                        source: url
+                        width: 14
+                        height: 14
+                        sourceSize: Qt.size(28, 28)
+                        smooth: true
+                        x: row.indent + (row.isPane ? 14 : 0)
+                        y: row.isSession ? 15 - height / 2 : (row.height - height) / 2
+                    }
+
                     Column {
                         anchors.verticalCenter: parent.verticalCenter
-                        x: row.indent + (row.isPane ? 14 : 0)
+                        x: row.indent + (row.isPane ? 14 : 0) + (agentIcon.visible ? 19 : 0)
                         width: parent.width - x - 26
                         spacing: 1
                         Label {

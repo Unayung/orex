@@ -1,6 +1,7 @@
 #include "workspace.h"
 
 #include <QClipboard>
+#include <QFile>
 #include <QColor>
 #include <QGuiApplication>
 #include <QJsonArray>
@@ -277,7 +278,7 @@ void Workspace::rebuildSessions() {
                         if (title.isEmpty())
                             title = b.toObject().value("label").toString();
                         panes.append(QVariantMap{{"kind", "pane"}, {"session_id", sessionId}, {"block_id", blockId},
-                                                 {"depth", tabRows ? 3 : 2},
+                                                 {"depth", tabRows ? 3 : 2}, {"icon", agentIcon(m_agents.value(blockId))},
                                                  {"label", title}, {"status", m_programStatus.value(blockId)},
                                                  {"focused", blockId == window.value("focused_block_id").toString() &&
                                                                  window.value("window_id") == view.value("active_window_id")},
@@ -287,6 +288,7 @@ void Workspace::rebuildSessions() {
             if (panes.size() == 1 && !tabRows) {
                 // One pane: its title is the session's second line.
                 row.insert("subtitle", panes.first().toMap().value("label"));
+                row.insert("icon", panes.first().toMap().value("icon"));
                 row.insert("status", panes.first().toMap().value("status"));
                 list.append(row);
             } else {
@@ -308,6 +310,45 @@ void Workspace::rebuildSessions() {
         m_sessions = list;
         emit sessionsChanged();
     }
+}
+
+// The agent a process is, from its name, argv[0], or path. Claude Code's
+// process is "claude"; Hermes runs under Python but names itself "hermes".
+static QString agentOf(const QJsonObject &process) {
+    const QString text = (process.value("name").toString() + " " + process.value("argv0").toString() + " " +
+                          process.value("path").toString()).toLower();
+    static const char *agents[] = {"claude", "hermes", "codex", "opencode", "copilot", "kimi", "gemini"};
+    for (const char *agent : agents)
+        if (text.contains(QLatin1String(agent)))
+            return QString::fromLatin1(agent);
+    return {};
+}
+
+QString Workspace::agentIcon(const QString &agent) {
+    if (agent.isEmpty())
+        return {};
+    // Hermes has no mark in Simple Icons; its desktop app installs its own.
+    if (agent == "hermes") {
+        const QString path = "/usr/share/icons/hicolor/48x48/apps/hermes-desktop.png";
+        return QFile::exists(path) ? QUrl::fromLocalFile(path).toString() : QString();
+    }
+    static const QHash<QString, QString> files{{"claude", "claude"}, {"codex", "openai"}, {"copilot", "githubcopilot"},
+                                               {"gemini", "googlegemini"}, {"opencode", "opencode"}, {"kimi", "kimi"}};
+    return files.contains(agent) ? "qrc:/icons/" + files.value(agent) + ".svg" : QString();
+}
+
+void Workspace::fetchAgent(Host *host, const QString &sessionId, const QString &blockId) {
+    host->rex->call("com.superlogical.terminal.process",
+                    {{"session_id", sessionId}, {"block_id", blockId}, {"args", QJsonObject{}}},
+                    [this, blockId](const QJsonObject &result, const QJsonObject &error) {
+        if (!error.isEmpty())
+            return;
+        const QString agent = agentOf(result.value("foreground").toObject());
+        if (agent == m_agents.value(blockId))
+            return;
+        m_agents.insert(blockId, agent);
+        rebuildSessions();
+    });
 }
 
 void Workspace::fetchSessionView(Host *host, const QString &sessionId) {
@@ -332,6 +373,7 @@ void Workspace::fetchSessionView(Host *host, const QString &sessionId) {
                             rebuildSessions();
                         }
                     });
+                    fetchAgent(host, sessionId, blockId);
                     // A status reported before orex connected comes only from here.
                     host->rex->call("com.superlogical.terminal.program_status", target,
                                     [this, blockId](const QJsonObject &result, const QJsonObject &) {
@@ -539,6 +581,9 @@ void Workspace::onEvent(Host *host, const QJsonObject &event) {
             if (name == "title_changed") {
                 m_titles.insert(blockId, block.value("payload").toObject().value("title").toString());
                 rebuildSessions();
+            } else if (name == "process_changed") {
+                // Someone started or left an agent in this pane.
+                fetchAgent(host, payload.value("session_id").toString(), blockId);
             } else if (name == "clipboard_written") {
                 clipboardWritten(host, payload.value("session_id").toString(), blockId, block.value("payload").toObject());
             } else if (name == "program_status_changed") {

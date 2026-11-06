@@ -73,6 +73,13 @@ Floating layers, Kitty images, rectangular selection, a scrollbar, connecting to
 Rex servers on other machines, and resuming a stream after a dropped connection
 (orex reconnects from scratch when the server restarts).
 
+## Agent icons
+
+The session list marks panes running a coding agent with its icon. Claude,
+OpenAI (Codex), GitHub Copilot, Google Gemini, OpenCode, and Kimi come from
+[Simple Icons](https://simpleicons.org) (CC0); the marks belong to their owners.
+Hermes uses the icon its desktop app installs, when it's there.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

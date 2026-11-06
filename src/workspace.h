@@ -166,6 +166,9 @@ private:
     // Fetches one session's view for the sidebar, and the titles of panes
     // it hasn't seen yet.
     void fetchSessionView(Host *host, const QString &sessionId);
+    void fetchAgent(Host *host, const QString &sessionId, const QString &blockId);
+    // An image URL for an agent's icon, or empty.
+    static QString agentIcon(const QString &agent);
     void fetchView();
     void applyView(const QJsonObject &view);
     void layoutPanes();
@@ -211,6 +214,9 @@ private:
     // What each pane's program says: its title, and its status from OSC 7501
     // (idle, working, done, blocked), by block ID.
     QHash<QString, QString> m_titles, m_programStatus;
+    // Which coding agent runs in front in each pane (claude, hermes, codex…),
+    // by block ID; empty for anything else.
+    QHash<QString, QString> m_agents;
     bool m_focusFollowsMouse = false;
     qreal m_fontSize = 12;
     // A pane to focus once the session being selected is attached.

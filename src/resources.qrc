@@ -1,5 +1,11 @@
 <RCC>
     <qresource prefix="/">
         <file>Main.qml</file>
+        <file>icons/claude.svg</file>
+        <file>icons/openai.svg</file>
+        <file>icons/githubcopilot.svg</file>
+        <file>icons/googlegemini.svg</file>
+        <file>icons/opencode.svg</file>
+        <file>icons/kimi.svg</file>
     </qresource>
 </RCC>
