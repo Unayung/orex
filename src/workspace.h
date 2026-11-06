@@ -10,7 +10,9 @@
 #include <QObject>
 #include <QPointer>
 #include <QTimer>
+#include <QRectF>
 #include <QVariantList>
+#include <functional>
 
 #include "rexclient.h"
 #include "theme.h"
@@ -26,6 +28,13 @@ class Workspace : public QObject {
     Q_PROPERTY(QVariantList windows READ windows NOTIFY viewChanged)
     Q_PROPERTY(QString activeWindow READ activeWindow NOTIFY viewChanged)
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
+    // Floating layers of the active tab, for QML to draw their frames:
+    // layer_id, title, x, y, width, height (pixels of the pane area), z, focused.
+    Q_PROPERTY(QVariantList frames READ frames NOTIFY framesChanged)
+    // Minimized floating layers: layer_id, title.
+    Q_PROPERTY(QVariantList minimized READ minimized NOTIFY framesChanged)
+    // Every action orex offers: id, title, shortcut. The palette lists them.
+    Q_PROPERTY(QVariantList actions READ actions CONSTANT)
 
 public:
     explicit Workspace(Theme *theme, QObject *parent = nullptr);
@@ -36,6 +45,9 @@ public:
     QVariantList windows() const;
     QString activeWindow() const { return m_view.value("active_window_id").toString(); }
     QString status() const { return m_status; }
+    QVariantList frames() const { return m_frames; }
+    QVariantList minimized() const { return m_minimized; }
+    QVariantList actions() const;
 
     // Connects, then shows the session whose label or ID suffix is
     // `wanted`, or the first session.
@@ -50,11 +62,21 @@ public:
     // Gives every pane back to Rex, so other clients size them again.
     Q_INVOKABLE void shutdown();
 
+    // Runs one of `actions` by id. `arg` is the tab number for tab.goto and
+    // the new name for the rename actions.
+    Q_INVOKABLE void perform(const QString &id, const QVariant &arg = {});
+    // Moves a floating layer so its top-left corner is at x, y (pixels of the
+    // pane area), keeping its size.
+    Q_INVOKABLE void moveLayer(const QString &layerId, qreal x, qreal y);
+    Q_INVOKABLE void raiseLayer(const QString &layerId);
+    Q_INVOKABLE void setLayerMinimized(const QString &layerId, bool minimized);
+
 signals:
     void sessionsChanged();
     void currentSessionChanged();
     void viewChanged();
     void statusChanged();
+    void framesChanged();
 
 private:
     struct Pane {
@@ -70,6 +92,14 @@ private:
     void fetchView();
     void applyView(const QJsonObject &view);
     void layoutPanes();
+    QJsonObject activeWindowObject() const;
+    QString focusedBlock() const;
+    QJsonObject layerOf(const QString &blockId) const;
+    // The pane next to `blockId` in a direction, from the last layout.
+    QString neighbor(const QString &blockId, const QString &direction) const;
+    // Calls `then` with a new shell block's layout node, started in the
+    // focused pane's directory, the way a new tab or split opens in Rex.app.
+    void withNewShell(std::function<void(const QJsonObject &layout)> then);
     void closePane(const QString &blockId);
     void closeAllPanes();
     void setStatus(const QString &status);
@@ -89,4 +119,7 @@ private:
     QPointer<QQuickItem> m_area;
     QHash<QString, Pane> m_panes;
     QString m_status;
+    QVariantList m_frames, m_minimized;
+    // Blocks of the active tab as drawn, with rects in window fractions.
+    QList<QPair<QString, QRectF>> m_placed;
 };

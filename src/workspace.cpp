@@ -5,12 +5,16 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QRectF>
+#include <QUrl>
 
 #include "blockstream.h"
 #include "terminalitem.h"
 
 // Space between panes, where the area's background shows as a divider.
 static constexpr qreal kGap = 2;
+// A floating layer's border, and the title bar it's dragged by.
+static constexpr qreal kFrame = 1;
+static constexpr qreal kTitleBar = 22;
 
 // The blocks of a layout tree with their rects, as fractions of the window.
 static void collectBlocks(const QJsonObject &node, QList<QPair<QString, QRectF>> &out) {
@@ -249,37 +253,85 @@ void Workspace::layoutPanes() {
     // Every block the session still has, so panes of closed blocks go away
     // while panes in other tabs keep streaming in the background.
     QSet<QString> alive;
-    QJsonObject active;
-    for (const QJsonValue &w : m_view.value("windows").toArray()) {
-        const QJsonObject window = w.toObject();
-        for (const QJsonValue &layer : window.value("layers").toArray())
+    for (const QJsonValue &w : m_view.value("windows").toArray())
+        for (const QJsonValue &layer : w.toObject().value("layers").toArray())
             for (const QJsonValue &b : layer.toObject().value("blocks").toArray())
                 alive.insert(b.toObject().value("block_id").toString());
-        if (window.value("window_id").toString() == activeWindow())
-            active = window;
-    }
     for (const QString &blockId : m_panes.keys())
         if (!alive.contains(blockId))
             closePane(blockId);
 
-    // ponytail: only the tiled layout is drawn. Floating layers wait until
-    // someone uses them from the Mac app.
-    QList<QPair<QString, QRectF>> placed;
+    const QJsonObject active = activeWindowObject();
+    const QString focusedBlock = active.value("focused_block_id").toString();
+    const qreal w = m_area->width(), h = m_area->height();
+
+    // Where each pane goes, in pixels of the pane area, with its stacking
+    // order. Layers come back to front, the tiled one first.
+    struct Place { QString blockId; QRectF px; qreal z; };
+    QList<Place> places;
+    QVariantList frames, minimized;
+    m_placed.clear();
+
     const QString zoomed = active.value("zoomed_block_id").toString();
     if (!zoomed.isEmpty()) {
-        placed.append({zoomed, QRectF(0, 0, 1, 1)});
+        places.append({zoomed, QRectF(0, 0, w, h), 0});
+        m_placed.append({zoomed, QRectF(0, 0, 1, 1)});
     } else {
-        for (const QJsonValue &layer : active.value("layers").toArray())
-            if (layer.toObject().value("kind").toString() == "tiled")
-                collectBlocks(layer.toObject().value("layout").toObject(), placed);
+        int index = 0;
+        for (const QJsonValue &value : active.value("layers").toArray()) {
+            const QJsonObject layer = value.toObject();
+            QList<QPair<QString, QRectF>> blocks;
+            collectBlocks(layer.value("layout").toObject(), blocks);
+            if (layer.value("kind").toString() == "tiled") {
+                for (const auto &[blockId, r] : std::as_const(blocks)) {
+                    // Edges inside the window get half a gap on each side; window edges get none.
+                    const qreal left = r.left() > 0 ? kGap / 2 : 0, top = r.top() > 0 ? kGap / 2 : 0;
+                    const qreal right = r.right() < 0.999 ? kGap / 2 : 0, bottom = r.bottom() < 0.999 ? kGap / 2 : 0;
+                    places.append({blockId, QRectF(r.x() * w + left, r.y() * h + top,
+                                                   r.width() * w - left - right, r.height() * h - top - bottom), 0});
+                    m_placed.append({blockId, r});
+                }
+                continue;
+            }
+            ++index;
+            const QString layerId = layer.value("layer_id").toString();
+            const QString title = layer.value("blocks").toArray().first().toObject().value("label").toString();
+            if (layer.value("state").toString() == "minimized") {
+                minimized.append(QVariantMap{{"layer_id", layerId}, {"title", title}});
+                continue;
+            }
+            // A floating layer gets a title bar to drag it by; its panes fill
+            // the rest of its bounds.
+            const QJsonArray b = layer.value("bounds").toArray();
+            const QRectF bounds(b.at(0).toDouble(), b.at(1).toDouble(), b.at(2).toDouble(), b.at(3).toDouble());
+            const QRectF frame(bounds.x() * w, bounds.y() * h, bounds.width() * w, bounds.height() * h);
+            const QRectF inner = frame.adjusted(kFrame, kTitleBar, -kFrame, -kFrame);
+            bool hasFocus = false;
+            for (const auto &[blockId, r] : std::as_const(blocks)) {
+                const QRectF local((r.x() - bounds.x()) / bounds.width(), (r.y() - bounds.y()) / bounds.height(),
+                                   r.width() / bounds.width(), r.height() / bounds.height());
+                places.append({blockId, QRectF(inner.x() + local.x() * inner.width(), inner.y() + local.y() * inner.height(),
+                                               local.width() * inner.width(), local.height() * inner.height()), index * 10.0 + 1});
+                m_placed.append({blockId, r});
+                hasFocus = hasFocus || blockId == focusedBlock;
+            }
+            frames.append(QVariantMap{{"layer_id", layerId}, {"title", title}, {"x", frame.x()}, {"y", frame.y()},
+                                      {"width", frame.width()}, {"height", frame.height()}, {"z", index * 10.0},
+                                      {"focused", hasFocus}});
+        }
+    }
+    if (frames != m_frames || minimized != m_minimized) {
+        m_frames = frames;
+        m_minimized = minimized;
+        emit framesChanged();
     }
 
     for (Pane &pane : m_panes)
         if (pane.terminal)
             pane.terminal->setVisible(false);
 
-    const qreal w = m_area->width(), h = m_area->height();
-    for (const auto &[blockId, r] : std::as_const(placed)) {
+    for (const Place &place : std::as_const(places)) {
+        const QString blockId = place.blockId;
         Pane &pane = m_panes[blockId];
         if (!pane.stream) {
             pane.terminal = new TerminalItem(m_area);
@@ -290,13 +342,7 @@ void Workspace::layoutPanes() {
                 setStatus(tr("A pane's stream ended: %1").arg(reason));
             });
             connect(pane.terminal, &QQuickItem::activeFocusChanged, this, [this, blockId](bool focused) {
-                const QString focusedInView = [&] {
-                    for (const QJsonValue &win : m_view.value("windows").toArray())
-                        if (win.toObject().value("window_id").toString() == activeWindow())
-                            return win.toObject().value("focused_block_id").toString();
-                    return QString();
-                }();
-                if (focused && blockId != focusedInView)
+                if (focused && blockId != this->focusedBlock())
                     m_rex.call("session.focus_block", {{"session_id", m_sessionId}, {"block_id", blockId}});
                 // Only a click or key in orex counts. Focus also moves when a
                 // layout change from another client arrives, and claiming then
@@ -308,11 +354,9 @@ void Workspace::layoutPanes() {
         }
         if (!pane.terminal)
             continue;
-        // Edges inside the window get half a gap on each side; window edges get none.
-        const qreal left = r.left() > 0 ? kGap / 2 : 0, top = r.top() > 0 ? kGap / 2 : 0;
-        const qreal right = r.right() < 0.999 ? kGap / 2 : 0, bottom = r.bottom() < 0.999 ? kGap / 2 : 0;
-        pane.terminal->setPosition(QPointF(r.x() * w + left, r.y() * h + top));
-        pane.terminal->setSize(QSizeF(r.width() * w - left - right, r.height() * h - top - bottom));
+        pane.terminal->setPosition(place.px.topLeft());
+        pane.terminal->setSize(place.px.size());
+        pane.terminal->setZ(place.z);
         pane.terminal->setVisible(true);
         // Start after the first size is set, so the pty is claimed at the
         // size this pane really has.
@@ -322,9 +366,27 @@ void Workspace::layoutPanes() {
         }
     }
 
-    const QString focusedBlock = active.value("focused_block_id").toString();
     if (m_panes.contains(focusedBlock) && m_panes[focusedBlock].terminal && m_panes[focusedBlock].terminal->isVisible())
         m_panes[focusedBlock].terminal->forceActiveFocus();
+}
+
+QJsonObject Workspace::activeWindowObject() const {
+    for (const QJsonValue &w : m_view.value("windows").toArray())
+        if (w.toObject().value("window_id").toString() == activeWindow())
+            return w.toObject();
+    return {};
+}
+
+QString Workspace::focusedBlock() const {
+    return activeWindowObject().value("focused_block_id").toString();
+}
+
+QJsonObject Workspace::layerOf(const QString &blockId) const {
+    for (const QJsonValue &layer : activeWindowObject().value("layers").toArray())
+        for (const QJsonValue &b : layer.toObject().value("blocks").toArray())
+            if (b.toObject().value("block_id").toString() == blockId)
+                return layer.toObject();
+    return {};
 }
 
 void Workspace::closePane(const QString &blockId) {
@@ -347,4 +409,239 @@ void Workspace::setStatus(const QString &status) {
         return;
     m_status = status;
     emit statusChanged();
+}
+
+QVariantList Workspace::actions() const {
+    // Shortcuts follow Ghostty's Linux defaults where Ghostty has the same
+    // action, and Rex.app's (with Cmd as Ctrl+Shift) where it doesn't.
+    // Actions marked "qml" need a dialog, so Main.qml runs them.
+    struct A { const char *id, *title, *shortcut; };
+    static const A list[] = {
+        {"palette", QT_TR_NOOP("Command Palette…"), "Ctrl+Shift+P"},
+        {"session.switch", QT_TR_NOOP("Change Session…"), "Ctrl+Shift+K"},
+        {"session.new", QT_TR_NOOP("New Session"), "Ctrl+Shift+N"},
+        {"session.next", QT_TR_NOOP("Next Session"), "Ctrl+Shift+Down"},
+        {"session.previous", QT_TR_NOOP("Previous Session"), "Ctrl+Shift+Up"},
+        {"session.rename", QT_TR_NOOP("Rename Session…"), ""},
+        {"session.close", QT_TR_NOOP("Close Session"), ""},
+        {"tab.new", QT_TR_NOOP("New Tab"), "Ctrl+Shift+T"},
+        {"tab.next", QT_TR_NOOP("Next Tab"), "Ctrl+Tab"},
+        {"tab.previous", QT_TR_NOOP("Previous Tab"), "Ctrl+Shift+Tab"},
+        {"tab.rename", QT_TR_NOOP("Rename Tab…"), ""},
+        {"tab.close", QT_TR_NOOP("Close Tab"), ""},
+        {"pane.split.right", QT_TR_NOOP("Split Pane Right"), "Ctrl+Shift+O"},
+        {"pane.split.down", QT_TR_NOOP("Split Pane Down"), "Ctrl+Shift+E"},
+        {"pane.split.left", QT_TR_NOOP("Split Pane Left"), ""},
+        {"pane.split.up", QT_TR_NOOP("Split Pane Up"), ""},
+        {"pane.close", QT_TR_NOOP("Close Pane"), "Ctrl+Shift+W"},
+        {"pane.close_others", QT_TR_NOOP("Close Other Panes"), ""},
+        {"pane.zoom", QT_TR_NOOP("Zoom Pane"), "Ctrl+Shift+Return"},
+        {"pane.focus.left", QT_TR_NOOP("Focus Pane Left"), "Ctrl+Alt+Left"},
+        {"pane.focus.right", QT_TR_NOOP("Focus Pane Right"), "Ctrl+Alt+Right"},
+        {"pane.focus.up", QT_TR_NOOP("Focus Pane Up"), "Ctrl+Alt+Up"},
+        {"pane.focus.down", QT_TR_NOOP("Focus Pane Down"), "Ctrl+Alt+Down"},
+        {"pane.focus_next", QT_TR_NOOP("Focus Next Pane"), ""},
+        {"pane.focus_previous", QT_TR_NOOP("Focus Previous Pane"), ""},
+        {"pane.move.left", QT_TR_NOOP("Move Pane Left"), "Ctrl+Alt+Shift+Left"},
+        {"pane.move.right", QT_TR_NOOP("Move Pane Right"), "Ctrl+Alt+Shift+Right"},
+        {"pane.move.up", QT_TR_NOOP("Move Pane Up"), "Ctrl+Alt+Shift+Up"},
+        {"pane.move.down", QT_TR_NOOP("Move Pane Down"), "Ctrl+Alt+Shift+Down"},
+        {"pane.float", QT_TR_NOOP("Float Pane"), "Ctrl+Alt+Return"},
+        {"pane.new_floating", QT_TR_NOOP("New Floating Pane"), ""},
+        {"pane.minimize_floating", QT_TR_NOOP("Minimize Floating Window"), "Ctrl+Alt+M"},
+        {"pane.minimize_all_floating", QT_TR_NOOP("Minimize or Restore Floating Windows"), "Ctrl+Alt+Shift+Return"},
+        {"sidebar.toggle", QT_TR_NOOP("Show or Hide Sessions"), "Ctrl+Shift+B"},
+        {"help", QT_TR_NOOP("Keyboard Shortcuts"), "Ctrl+Shift+/"},
+    };
+    QVariantList out;
+    for (const A &a : list)
+        out.append(QVariantMap{{"id", a.id}, {"title", tr(a.title)}, {"shortcut", a.shortcut}});
+    return out;
+}
+
+void Workspace::withNewShell(std::function<void(const QJsonObject &)> then) {
+    auto shellIn = [](const QString &cwd) {
+        QJsonObject block{{"flavor", "com.superlogical.terminal.shell"}};
+        if (!cwd.isEmpty())
+            block.insert("options", QJsonObject{{"cwd", cwd}});
+        return QJsonObject{{"block", block}};
+    };
+    const QString session = m_sessionId, block = focusedBlock();
+    if (session.isEmpty() || block.isEmpty())
+        return then(shellIn({}));
+    const QJsonObject target{{"session_id", session}, {"block_id", block}, {"args", QJsonObject{}}};
+    // The shell's own report (OSC 7) is best, but only shells set up for it
+    // send one, so fall back to the directory of the program in front.
+    m_rex.call("com.superlogical.terminal.pwd", target, [this, target, then, shellIn](const QJsonObject &result, const QJsonObject &) {
+        QString pwd = result.value("pwd").toString();
+        if (pwd.startsWith("file://"))
+            pwd = QUrl(pwd).toLocalFile();
+        if (!pwd.isEmpty())
+            return then(shellIn(pwd));
+        m_rex.call("com.superlogical.terminal.process", target, [then, shellIn](const QJsonObject &process, const QJsonObject &) {
+            QString cwd = process.value("foreground").toObject().value("cwd").toString();
+            if (cwd.isEmpty())
+                cwd = process.value("child").toObject().value("cwd").toString();
+            then(shellIn(cwd));
+        });
+    });
+}
+
+QString Workspace::neighbor(const QString &blockId, const QString &direction) const {
+    QRectF from;
+    for (const auto &[id, r] : m_placed)
+        if (id == blockId)
+            from = r;
+    if (from.isNull())
+        return {};
+    // The pane that shares the edge on that side and overlaps it the most.
+    constexpr qreal eps = 0.01;
+    QString best;
+    qreal bestOverlap = 0;
+    for (const auto &[id, r] : m_placed) {
+        if (id == blockId)
+            continue;
+        qreal overlap = 0;
+        if (direction == "left" && qAbs(r.right() - from.left()) < eps)
+            overlap = qMin(r.bottom(), from.bottom()) - qMax(r.top(), from.top());
+        else if (direction == "right" && qAbs(r.left() - from.right()) < eps)
+            overlap = qMin(r.bottom(), from.bottom()) - qMax(r.top(), from.top());
+        else if (direction == "up" && qAbs(r.bottom() - from.top()) < eps)
+            overlap = qMin(r.right(), from.right()) - qMax(r.left(), from.left());
+        else if (direction == "down" && qAbs(r.top() - from.bottom()) < eps)
+            overlap = qMin(r.right(), from.right()) - qMax(r.left(), from.left());
+        if (overlap > bestOverlap) {
+            bestOverlap = overlap;
+            best = id;
+        }
+    }
+    return best;
+}
+
+void Workspace::perform(const QString &id, const QVariant &arg) {
+    if (m_sessionId.isEmpty() && id != "session.new")
+        return;
+    const QString session = m_sessionId;
+    const QString block = focusedBlock();
+    const QJsonObject window = activeWindowObject();
+    auto call = [this](const QString &method, QJsonObject payload) {
+        m_rex.call(method, payload, [this, method](const QJsonObject &, const QJsonObject &error) {
+            if (!error.isEmpty())
+                setStatus(tr("%1 failed: %2").arg(method, error.value("message").toString()));
+        });
+    };
+
+    if (id == "session.new") {
+        const QJsonObject shell{{"block", QJsonObject{{"flavor", "com.superlogical.terminal.shell"}}}};
+        const QJsonObject firstWindow{{"layout", shell}};
+        m_rex.call("session.create", {{"initial_windows", QJsonArray{firstWindow}}},
+                   [this](const QJsonObject &result, const QJsonObject &error) {
+            if (error.isEmpty())
+                selectSession(result.value("session_id").toString());
+        });
+    } else if (id == "session.next" || id == "session.previous") {
+        stepSession(id == "session.next" ? 1 : -1);
+    } else if (id == "session.rename") {
+        call("session.set_label", {{"session_id", session}, {"label", arg.toString()}});
+    } else if (id == "session.close") {
+        call("session.destroy", {{"session_id", session}});
+    } else if (id == "tab.new") {
+        withNewShell([=](const QJsonObject &layout) {
+            call("session.new_window", {{"session_id", session}, {"layout", layout}, {"focus", true}});
+        });
+    } else if (id == "tab.next" || id == "tab.previous") {
+        stepWindow(id == "tab.next" ? 1 : -1);
+    } else if (id == "tab.goto") {
+        const QVariantList list = windows();
+        const int index = arg.toInt() - 1;
+        if (index >= 0 && index < list.size())
+            selectWindow(list.at(index).toMap().value("window_id").toString());
+    } else if (id == "tab.rename") {
+        call("session.set_window_label", {{"session_id", session}, {"window_id", activeWindow()}, {"label", arg.toString()}});
+    } else if (id == "tab.close") {
+        call("session.close_window", {{"session_id", session}, {"window_id", activeWindow()}});
+    } else if (id.startsWith("pane.split.")) {
+        const QString side = id.section('.', 2);
+        withNewShell([=](const QJsonObject &layout) {
+            call("session.new_split", {{"session_id", session}, {"anchor_id", block},
+                                       {"direction", side == "left" || side == "right" ? "horizontal" : "vertical"},
+                                       {"side", side == "left" || side == "up" ? "before" : "after"},
+                                       {"layout", layout}, {"focus", true}});
+        });
+    } else if (id == "pane.close") {
+        call("block.close", {{"session_id", session}, {"block_id", block}});
+    } else if (id == "pane.close_others") {
+        for (const auto &[other, r] : std::as_const(m_placed))
+            if (other != block)
+                call("block.close", {{"session_id", session}, {"block_id", other}});
+    } else if (id == "pane.zoom") {
+        const bool zoomed = !window.value("zoomed_block_id").toString().isEmpty();
+        call("session.zoom_block", {{"session_id", session}, {"block_id", block}, {"zoom", !zoomed}});
+    } else if (id.startsWith("pane.focus.")) {
+        call("session.focus_direction", {{"session_id", session}, {"direction", id.section('.', 2)}});
+    } else if (id == "pane.focus_next") {
+        call("session.focus_next_pane", {{"session_id", session}, {"wrap", true}});
+    } else if (id == "pane.focus_previous") {
+        call("session.focus_previous_pane", {{"session_id", session}, {"wrap", true}});
+    } else if (id.startsWith("pane.move.")) {
+        const QString other = neighbor(block, id.section('.', 2));
+        if (!other.isEmpty())
+            call("session.swap_blocks", {{"session_id", session}, {"block_id", block}, {"other_block_id", other}});
+    } else if (id == "pane.float") {
+        const QJsonObject layer = layerOf(block);
+        if (layer.value("kind").toString() == "tiled") {
+            call("session.float_block", {{"session_id", session}, {"block_id", block},
+                                         {"bounds", QJsonArray{0.15, 0.12, 0.7, 0.7}}});
+        } else {
+            // Docking puts the pane back beside the first pane of the layout.
+            QString anchor;
+            for (const QJsonValue &l : window.value("layers").toArray())
+                if (l.toObject().value("kind").toString() == "tiled" && anchor.isEmpty())
+                    anchor = l.toObject().value("blocks").toArray().first().toObject().value("block_id").toString();
+            if (!anchor.isEmpty())
+                call("session.move_block", {{"session_id", session}, {"block_id", block}, {"anchor_block_id", anchor},
+                                            {"direction", "horizontal"}, {"side", "after"}});
+        }
+    } else if (id == "pane.new_floating") {
+        withNewShell([=](const QJsonObject &layout) {
+            call("session.new_layer", {{"session_id", session}, {"bounds", QJsonArray{0.2, 0.15, 0.6, 0.6}},
+                                       {"layout", layout}, {"focus", true}});
+        });
+    } else if (id == "pane.minimize_floating") {
+        const QJsonObject layer = layerOf(block);
+        if (layer.value("kind").toString() != "tiled" && !layer.isEmpty())
+            setLayerMinimized(layer.value("layer_id").toString(), true);
+    } else if (id == "pane.minimize_all_floating") {
+        // Minimize them all, or bring them all back when none is showing.
+        const bool anyShowing = !m_frames.isEmpty();
+        for (const QJsonValue &l : window.value("layers").toArray())
+            if (l.toObject().value("kind").toString() != "tiled")
+                setLayerMinimized(l.toObject().value("layer_id").toString(), anyShowing);
+    }
+}
+
+void Workspace::moveLayer(const QString &layerId, qreal x, qreal y) {
+    if (!m_area || m_area->width() <= 0 || m_area->height() <= 0)
+        return;
+    for (const QJsonValue &l : activeWindowObject().value("layers").toArray()) {
+        const QJsonObject layer = l.toObject();
+        if (layer.value("layer_id").toString() != layerId)
+            continue;
+        const QJsonArray b = layer.value("bounds").toArray();
+        const qreal bw = b.at(2).toDouble(), bh = b.at(3).toDouble();
+        // The server refuses bounds that leave the window.
+        const qreal fx = qBound(0.0, x / m_area->width(), 1.0 - bw);
+        const qreal fy = qBound(0.0, y / m_area->height(), 1.0 - bh);
+        m_rex.call("session.resize_layer", {{"session_id", m_sessionId}, {"layer_id", layerId},
+                                            {"bounds", QJsonArray{fx, fy, bw, bh}}});
+    }
+}
+
+void Workspace::raiseLayer(const QString &layerId) {
+    m_rex.call("session.raise_layer", {{"session_id", m_sessionId}, {"layer_id", layerId}});
+}
+
+void Workspace::setLayerMinimized(const QString &layerId, bool minimized) {
+    m_rex.call("session.set_layer_state", {{"session_id", m_sessionId}, {"layer_id", layerId},
+                                           {"state", minimized ? "minimized" : "normal"}, {"focus", !minimized}});
 }
