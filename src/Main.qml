@@ -51,16 +51,53 @@ ApplicationWindow {
         }
     }
 
+    // While the sidebar is hidden: a thin strip on the left edge that only
+    // watches the pointer (clicks pass through to the panes), and the tab it
+    // brings out to open the sidebar again.
+    Item {
+        id: edge
+        visible: !sidebar.open
+        z: 3000
+        width: 6
+        height: parent.height
+        HoverHandler { id: edgeHover }
+    }
+    Rectangle {
+        id: revealTab
+        readonly property bool shown: !sidebar.open && (edgeHover.hovered || tabHover.hovered)
+        z: 3001
+        width: 26
+        height: 40
+        x: shown ? 0 : -width
+        y: 8
+        radius: Math.min(6, theme.radius)
+        color: tabHover.hovered ? Material.accent : Qt.lighter(theme.selection, 1.3)
+        border.color: Material.accent
+        Behavior on x { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+        Label {
+            anchors.centerIn: parent
+            text: "›"
+            font.pixelSize: 18
+            color: tabHover.hovered ? theme.accentForeground : theme.foreground
+        }
+        HoverHandler { id: tabHover; cursorShape: Qt.PointingHandCursor }
+        TapHandler { onTapped: sidebar.open = true }
+        ToolTip.visible: tabHover.hovered
+        ToolTip.text: qsTr("Show sessions") + "  (Ctrl+Shift+B)"
+        ToolTip.delay: 400
+    }
+
     RowLayout {
         anchors.fill: parent
         spacing: 0
 
         Rectangle {
             id: sidebar
-            // Collapsed, the sidebar keeps a narrow strip with the button that
-            // opens it again, so the toggle is always where you left it.
+            // Collapsed, the sidebar takes no room at all; pointing at the
+            // window's left edge brings out a tab that opens it again.
             property bool open: true
-            Layout.preferredWidth: open ? 200 : 28
+            visible: open
+            Layout.preferredWidth: open ? 200 : 0
             Layout.fillHeight: true
             color: Qt.darker(theme.background, 1.25)
             clip: true
@@ -73,7 +110,6 @@ ApplicationWindow {
                 Label {
                     anchors.verticalCenter: parent.verticalCenter
                     x: 14
-                    visible: sidebar.open
                     text: qsTr("Sessions")
                     font.pixelSize: 11
                     font.capitalization: Font.AllUppercase
@@ -85,12 +121,12 @@ ApplicationWindow {
                     anchors.verticalCenter: parent.verticalCenter
                     implicitWidth: 28
                     implicitHeight: 28
-                    text: sidebar.open ? "‹" : "›"
+                    text: "‹"
                     font.pixelSize: 18
-                    ToolTip.text: (sidebar.open ? qsTr("Hide sessions") : qsTr("Show sessions")) + "  (Ctrl+Shift+B)"
+                    ToolTip.text: qsTr("Hide sessions") + "  (Ctrl+Shift+B)"
                     ToolTip.visible: hovered
                     ToolTip.delay: 400
-                    onClicked: sidebar.open = !sidebar.open
+                    onClicked: sidebar.open = false
                 }
             }
 
