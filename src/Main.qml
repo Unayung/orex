@@ -229,7 +229,8 @@ ApplicationWindow {
                     // A program's status from OSC 7501, such as Claude Code
                     // working or waiting on you. Working breathes in the accent,
                     // blocked is a ringed red that waits for you, done is a
-                    // still green. On a session or tab row it sits at the right.
+                    // still green. Every row keeps it in the same column on the
+                    // right, left of the session's bell.
                     Rectangle {
                         id: dot
                         readonly property string status: row.modelData.status ?? ""
@@ -237,7 +238,7 @@ ApplicationWindow {
                         width: status === "blocked" ? 9 : 7
                         height: width
                         radius: width / 2
-                        x: (row.isPane ? row.indent + 4 : row.isSession ? row.width - 34 : row.width - 18) - width / 2
+                        x: row.width - 34 - width / 2
                         y: row.isSession ? 15 - height / 2 : (row.height - height) / 2
                         color: status === "blocked" ? theme.red : status === "done" ? theme.green : Material.accent
                         border.width: status === "blocked" ? 2 : 0
@@ -261,14 +262,14 @@ ApplicationWindow {
                         height: 14
                         sourceSize: Qt.size(28, 28)
                         smooth: true
-                        x: row.indent + (row.isPane ? 14 : 0)
+                        x: row.indent + (row.isPane ? 4 : 0)
                         y: row.isSession ? 15 - height / 2 : (row.height - height) / 2
                     }
 
                     Column {
                         anchors.verticalCenter: parent.verticalCenter
-                        x: row.indent + (row.isPane ? 14 : 0) + (agentIcon.visible ? 19 : 0)
-                        width: parent.width - x - 26
+                        x: row.indent + (row.isPane ? 4 : 0) + (agentIcon.visible ? 19 : 0)
+                        width: parent.width - x - 44 // clear of the status column and the bell
                         spacing: 1
                         Label {
                             width: parent.width
