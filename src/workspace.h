@@ -83,6 +83,8 @@ public:
     Q_INVOKABLE void selectSession(const QString &sessionId);
     // Shows a session and focuses one of its panes, in whichever tab it is.
     Q_INVOKABLE void focusPane(const QString &sessionId, const QString &blockId);
+    // Shows a session with one of its tabs in front.
+    Q_INVOKABLE void focusTab(const QString &sessionId, const QString &windowId);
     Q_INVOKABLE void selectWindow(const QString &windowId);
     Q_INVOKABLE void stepWindow(int delta);
     Q_INVOKABLE void stepSession(int delta);
@@ -203,6 +205,7 @@ private:
     qreal m_fontSize = 12;
     // A pane to focus once the session being selected is attached.
     QString m_pendingFocus;
+    QString m_pendingTab;
     // Each floating layer's frame position and its panes' positions as last
     // laid out, so a drag can move them by the same offset.
     struct DraggedLayer { QPointF frame; QList<QPair<QString, QPointF>> panes; };

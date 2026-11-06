@@ -185,31 +185,52 @@ ApplicationWindow {
                         }
                     }
                 }
+                // Machine (the band above), then workspace, tab, and pane, each
+                // set further in, with a guide line down each level it's under.
                 delegate: Rectangle {
                     id: row
                     required property var modelData
                     readonly property string kind: modelData.kind ?? "session"
                     readonly property bool isPane: kind === "pane"
+                    readonly property bool isTab: kind === "tab"
+                    readonly property bool isSession: kind === "session"
                     readonly property bool placeholder: kind === "placeholder"
+                    // 1 workspace, 2 tab or a pane right under its workspace, 3 a pane under a tab.
+                    readonly property int depth: isPane ? (modelData.depth ?? 2) : isTab ? 2 : 1
+                    readonly property real indent: 14 + (depth - 1) * 16
                     readonly property bool current: modelData.session_id === backend.currentSession
                                                     && modelData.host === backend.currentHost
-                    readonly property bool hasSubtitle: !isPane && (modelData.subtitle ?? "").length > 0
+                    readonly property bool hasSubtitle: isSession && (modelData.subtitle ?? "").length > 0
+                    readonly property bool inFront: (isTab || isPane) && current && (modelData.focused ?? false)
                     width: ListView.view.width
-                    height: isPane ? 26 : (hasSubtitle ? 46 : 34)
-                    color: current && !isPane ? theme.surface
+                    height: isSession ? (hasSubtitle ? 46 : 34) : 26
+                    color: current && isSession ? theme.surface
                          : (hover.hovered && !placeholder ? Qt.lighter(theme.background, 1.3) : "transparent")
 
                     Rectangle {
                         width: 3
                         height: parent.height
                         color: Material.accent
-                        visible: row.current && !row.isPane
+                        visible: row.current && row.isSession
+                    }
+
+                    // Guide lines for the levels this row sits under.
+                    Repeater {
+                        model: row.depth - 1
+                        Rectangle {
+                            required property int index
+                            x: 20 + index * 16
+                            width: 1
+                            height: row.height
+                            color: theme.foreground
+                            opacity: 0.15
+                        }
                     }
 
                     // A program's status from OSC 7501, such as Claude Code
-                    // working or waiting on you.
-                    // Working breathes in the accent, blocked is a ringed red
-                    // that waits for you, done is a still green.
+                    // working or waiting on you. Working breathes in the accent,
+                    // blocked is a ringed red that waits for you, done is a
+                    // still green. On a session or tab row it sits at the right.
                     Rectangle {
                         id: dot
                         readonly property string status: row.modelData.status ?? ""
@@ -217,8 +238,8 @@ ApplicationWindow {
                         width: status === "blocked" ? 9 : 7
                         height: width
                         radius: width / 2
-                        x: (row.isPane ? 26 : 182) - width / 2
-                        y: row.isPane ? (row.height - height) / 2 : 15 - height / 2
+                        x: (row.isPane ? row.indent + 4 : row.width - 18) - width / 2
+                        y: row.isSession ? 15 - height / 2 : (row.height - height) / 2
                         color: status === "blocked" ? theme.red : status === "done" ? theme.green : Material.accent
                         border.width: status === "blocked" ? 2 : 0
                         border.color: Qt.lighter(theme.red, 1.5)
@@ -233,20 +254,20 @@ ApplicationWindow {
 
                     Column {
                         anchors.verticalCenter: parent.verticalCenter
-                        x: row.isPane ? 36 : 14
-                        width: parent.width - x - (row.isPane ? 8 : 24)
+                        x: row.indent + (row.isPane ? 14 : 0)
+                        width: parent.width - x - 26
                         spacing: 1
                         Label {
                             width: parent.width
                             elide: Text.ElideRight
-                            text: row.modelData.label
+                            text: (row.isTab ? "▸ " : "") + row.modelData.label
                             color: theme.foreground
                             font.italic: row.placeholder
-                            font.pixelSize: row.isPane ? 12 : (row.placeholder ? 12 : 14)
-                            font.bold: row.isPane && row.current && row.modelData.focused
+                            font.pixelSize: row.isSession ? 14 : 12
+                            font.weight: row.isSession ? Font.DemiBold : (row.inFront ? Font.Bold : Font.Normal)
                             opacity: row.placeholder ? 0.4
-                                   : row.isPane ? (row.current && row.modelData.focused ? 0.95 : 0.6)
-                                   : (row.current ? 1 : 0.65)
+                                   : row.isSession ? (row.current ? 1 : 0.75)
+                                   : row.inFront ? 0.95 : 0.6
                         }
                         Label {
                             visible: row.hasSubtitle
@@ -260,13 +281,14 @@ ApplicationWindow {
                     }
                     HoverHandler { id: hover }
                     ToolTip.visible: hover.hovered && (row.modelData.detail ?? row.modelData.label ?? "").length > 0
-                                     && (row.placeholder || row.isPane)
+                                     && !row.isSession
                     ToolTip.text: row.modelData.detail ?? row.modelData.label ?? ""
                     ToolTip.delay: 600
                     TapHandler {
                         enabled: !row.placeholder
                         onTapped: row.isPane ? backend.focusPane(row.modelData.session_id, row.modelData.block_id)
-                                             : backend.selectSession(row.modelData.session_id)
+                                : row.isTab ? backend.focusTab(row.modelData.session_id, row.modelData.window_id)
+                                : backend.selectSession(row.modelData.session_id)
                     }
                 }
             }

@@ -243,11 +243,29 @@ void Workspace::rebuildSessions() {
             row.insert("kind", "session");
             row.insert("host", host->key);
             row.insert("host_label", host->label);
-            // The panes, tab by tab, in layout order.
+            // The panes, tab by tab, in layout order. With more than one tab,
+            // each tab gets a row of its own above its panes.
             QVariantList panes;
             const QJsonObject view = host->views.value(sessionId);
-            for (const QJsonValue &w : view.value("windows").toArray()) {
+            const QJsonArray windows = view.value("windows").toArray();
+            const bool tabRows = windows.size() > 1;
+            const auto rank = [](const QString &x) { return x == "blocked" ? 3 : x == "working" ? 2 : x == "done" ? 1 : 0; };
+            for (const QJsonValue &w : windows) {
                 const QJsonObject window = w.toObject();
+                const int tabRow = panes.size();
+                QString tabStatus;
+                for (const QJsonValue &l : window.value("layers").toArray())
+                    for (const QJsonValue &b : l.toObject().value("blocks").toArray()) {
+                        const QString s = m_programStatus.value(b.toObject().value("block_id").toString());
+                        if (rank(s) > rank(tabStatus))
+                            tabStatus = s;
+                    }
+                if (tabRows)
+                    panes.insert(tabRow, QVariantMap{{"kind", "tab"}, {"session_id", sessionId},
+                                                     {"window_id", window.value("window_id").toString()},
+                                                     {"label", window.value("label").toString()}, {"status", tabStatus},
+                                                     {"focused", window.value("window_id") == view.value("active_window_id")},
+                                                     {"host", host->key}, {"host_label", host->label}});
                 for (const QJsonValue &l : window.value("layers").toArray())
                     for (const QJsonValue &b : l.toObject().value("blocks").toArray()) {
                         const QString blockId = b.toObject().value("block_id").toString();
@@ -255,13 +273,14 @@ void Workspace::rebuildSessions() {
                         if (title.isEmpty())
                             title = b.toObject().value("label").toString();
                         panes.append(QVariantMap{{"kind", "pane"}, {"session_id", sessionId}, {"block_id", blockId},
+                                                 {"depth", tabRows ? 3 : 2},
                                                  {"label", title}, {"status", m_programStatus.value(blockId)},
                                                  {"focused", blockId == window.value("focused_block_id").toString() &&
                                                                  window.value("window_id") == view.value("active_window_id")},
                                                  {"host", host->key}, {"host_label", host->label}});
                     }
             }
-            if (panes.size() == 1) {
+            if (panes.size() == 1 && !tabRows) {
                 // One pane: its title is the session's second line.
                 row.insert("subtitle", panes.first().toMap().value("label"));
                 row.insert("status", panes.first().toMap().value("status"));
@@ -413,6 +432,8 @@ void Workspace::selectSession(const QString &sessionId) {
         applyView(view.contains("view") ? view.value("view").toObject() : view);
         if (!m_pendingFocus.isEmpty())
             m_rex->call("session.focus_block", {{"session_id", sessionId}, {"block_id", std::exchange(m_pendingFocus, {})}});
+        if (!m_pendingTab.isEmpty())
+            m_rex->call("session.focus_window", {{"session_id", sessionId}, {"window_id", std::exchange(m_pendingTab, {})}});
     });
 }
 
@@ -424,6 +445,13 @@ void Workspace::focusPane(const QString &sessionId, const QString &blockId) {
     }
     // Focusing needs the session attached, which selecting it starts.
     m_pendingFocus = blockId;
+    selectSession(sessionId);
+}
+
+void Workspace::focusTab(const QString &sessionId, const QString &windowId) {
+    if (sessionId == m_sessionId)
+        return selectWindow(windowId);
+    m_pendingTab = windowId;
     selectSession(sessionId);
 }
 
