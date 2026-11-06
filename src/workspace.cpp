@@ -11,13 +11,24 @@
 #include "paneborder.h"
 #include "terminalitem.h"
 
-// Space between panes; each pane's own border draws the divider, so none.
-static constexpr qreal kGap = 0;
-// Each pane's border, inside its slot.
+// Space between split panes. Edges against the window or a floating frame
+// get none, so the panes still use the whole area.
+static constexpr qreal kGap = 6;
+// Each pane's border, inside its slot, and the space between the border
+// and the text.
 static constexpr qreal kBorder = 1;
+static constexpr qreal kPadding = 4;
 // A floating layer's border, and the title bar it's dragged by.
-static constexpr qreal kFrame = 0;
+static constexpr qreal kFrame = 4;
 static constexpr qreal kTitleBar = 22;
+
+// `px` minus half a gap on each edge that faces another pane. `local` is the
+// same rect as fractions of its container, which tells inner edges apart.
+static QRectF withGaps(const QRectF &px, const QRectF &local) {
+    const qreal left = local.left() > 0.001 ? kGap / 2 : 0, top = local.top() > 0.001 ? kGap / 2 : 0;
+    const qreal right = local.right() < 0.999 ? kGap / 2 : 0, bottom = local.bottom() < 0.999 ? kGap / 2 : 0;
+    return px.adjusted(left, top, -right, -bottom);
+}
 
 // The blocks of a layout tree with their rects, as fractions of the window.
 void collectBlocks(const QJsonObject &node, QList<QPair<QString, QRectF>> &out) {
@@ -418,11 +429,7 @@ void Workspace::layoutPanes() {
             collectBlocks(layer.value("layout").toObject(), blocks);
             if (layer.value("kind").toString() == "tiled") {
                 for (const auto &[blockId, r] : std::as_const(blocks)) {
-                    // Edges inside the window get half a gap on each side; window edges get none.
-                    const qreal left = r.left() > 0 ? kGap / 2 : 0, top = r.top() > 0 ? kGap / 2 : 0;
-                    const qreal right = r.right() < 0.999 ? kGap / 2 : 0, bottom = r.bottom() < 0.999 ? kGap / 2 : 0;
-                    places.append({blockId, QRectF(r.x() * w + left, r.y() * h + top,
-                                                   r.width() * w - left - right, r.height() * h - top - bottom), 0});
+                    places.append({blockId, withGaps(QRectF(r.x() * w, r.y() * h, r.width() * w, r.height() * h), r), 0});
                     m_placed.append({blockId, r});
                 }
                 continue;
@@ -446,8 +453,8 @@ void Workspace::layoutPanes() {
             for (const auto &[blockId, r] : std::as_const(blocks)) {
                 const QRectF local((r.x() - bounds.x()) / bounds.width(), (r.y() - bounds.y()) / bounds.height(),
                                    r.width() / bounds.width(), r.height() / bounds.height());
-                const QRectF px(inner.x() + local.x() * inner.width(), inner.y() + local.y() * inner.height(),
-                                local.width() * inner.width(), local.height() * inner.height());
+                const QRectF px = withGaps(QRectF(inner.x() + local.x() * inner.width(), inner.y() + local.y() * inner.height(),
+                                                  local.width() * inner.width(), local.height() * inner.height()), local);
                 places.append({blockId, px, index * 10.0 + 1});
                 dragged.panes.append({blockId, px.topLeft()});  // the slot, border included
                 m_placed.append({blockId, r});
@@ -499,7 +506,8 @@ void Workspace::layoutPanes() {
         }
         if (!pane.terminal)
             continue;
-        const QRectF inner = place.px.adjusted(kBorder, kBorder, -kBorder, -kBorder);
+        const qreal inset = kBorder + kPadding;
+        const QRectF inner = place.px.adjusted(inset, inset, -inset, -inset);
         pane.terminal->setPosition(inner.topLeft());
         pane.terminal->setSize(inner.size());
         pane.terminal->setZ(place.z);
@@ -839,7 +847,7 @@ void Workspace::dragLayer(const QString &layerId, qreal x, qreal y) {
     for (const auto &[blockId, origin] : it->panes) {
         const Pane pane = m_panes.value(blockId);
         if (pane.terminal)
-            pane.terminal->setPosition(origin + offset + QPointF(kBorder, kBorder));
+            pane.terminal->setPosition(origin + offset + QPointF(kBorder + kPadding, kBorder + kPadding));
         if (pane.border)
             pane.border->setPosition(origin + offset);
     }

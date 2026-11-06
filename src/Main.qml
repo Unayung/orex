@@ -148,7 +148,7 @@ ApplicationWindow {
 
                 Rectangle {
                     anchors.fill: parent
-                    color: theme.selection // shows through the gaps between panes
+                    color: theme.background // panes draw their own borders; gaps stay plain
                 }
 
                 Item {
