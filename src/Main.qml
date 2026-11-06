@@ -440,10 +440,12 @@ ApplicationWindow {
                         model: backend.paneSlots
                         delegate: Item {
                             required property var modelData
-                            x: modelData.x + 1
-                            y: modelData.y + 1
-                            width: modelData.width - 2
-                            height: 21
+                            // Inside the border at its widest, the 2px of a pane
+                            // showing its program's status, so it never covers it.
+                            x: modelData.x + 2
+                            y: modelData.y + 2
+                            width: modelData.width - 4
+                            height: 20
                             z: modelData.z + 0.6
                             readonly property color fg: Qt.color(theme.foreground)
 
