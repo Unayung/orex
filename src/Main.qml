@@ -393,9 +393,6 @@ ApplicationWindow {
                     objectName: "paneArea"
                     anchors.fill: parent
                     anchors.margins: 4
-                    // Room for the top row's drag handles, which sit across
-                    // the panes' top edges.
-                    anchors.topMargin: 9
 
                     // Dragging a pane by its handle: the pane under the pointer
                     // and the part of it the pane would go to.
@@ -488,10 +485,11 @@ ApplicationWindow {
                             required property var modelData
                             readonly property bool lit: grip.hovered || paneDrag.active
                             width: 48
-                            height: 16
+                            height: 14
                             radius: height / 2
+                            // In the middle of the pane's title bar (2px in, 20 high).
                             x: Math.round(modelData.x + modelData.width / 2 - width / 2)
-                            y: Math.round(modelData.y - height / 2 + 1)
+                            y: Math.round(modelData.y + 2 + (20 - height) / 2)
                             // Above the divider it sits on, so grabbing the grip
                             // moves the pane and the rest of the line resizes.
                             z: modelData.z + 0.9
