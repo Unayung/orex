@@ -86,7 +86,7 @@ int main(int argc, char *argv[]) {
         });
     // Drags with the mouse, "ms:x1,y1>x2,y2:png", and saves a screenshot
     // before releasing, to see what's drawn mid-drag.
-    if (qEnvironmentVariableIsSet("OREX_DRAG")) {
+    if (!qEnvironmentVariable("OREX_DRAG").isEmpty()) {
         const QStringList d = qEnvironmentVariable("OREX_DRAG").split(':');
         const QStringList ends = d.at(1).split('>');
         const QPointF from(ends[0].section(',', 0, 0).toDouble(), ends[0].section(',', 1).toDouble());
@@ -134,7 +134,7 @@ int main(int argc, char *argv[]) {
         });
     // Right-clicks at "ms:x,y" and grabs the menu that opens; then types
     // OREX_KEYS "ms:Key,Key,…" (Qt key names) into the window.
-    if (qEnvironmentVariableIsSet("OREX_RCLICK")) {
+    if (!qEnvironmentVariable("OREX_RCLICK").isEmpty()) {
         const QString v = qEnvironmentVariable("OREX_RCLICK");
         QTimer::singleShot(v.section(':', 0, 0).toInt(), [window, at = v.section(':', 1)] {
             window->requestActivate();
@@ -153,7 +153,7 @@ int main(int argc, char *argv[]) {
             });
         });
     }
-    if (qEnvironmentVariableIsSet("OREX_KEYS")) {
+    if (!qEnvironmentVariable("OREX_KEYS").isEmpty()) {
         const QString v = qEnvironmentVariable("OREX_KEYS");
         QTimer::singleShot(v.section(':', 0, 0).toInt(), [window, keys = v.section(':', 1).split(',')] {
             for (const QString &k : keys) {

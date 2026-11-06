@@ -785,7 +785,7 @@ ApplicationWindow {
                                         text: "⊟"
                                         ToolTip.text: qsTr("Dock into the layout")
                                         ToolTip.visible: hovered
-                                        onClicked: backend.perform("pane.float")
+                                        onClicked: backend.dockLayer(frame.modelData.layer_id)
                                     }
                                 }
                                 // Drag by the title bar; the server gets the new

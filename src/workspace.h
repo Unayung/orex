@@ -125,6 +125,8 @@ public:
     // dragged, before the server hears about it. x, y as for moveLayer.
     Q_INVOKABLE void dragLayer(const QString &layerId, qreal x, qreal y);
     Q_INVOKABLE void raiseLayer(const QString &layerId);
+    // Puts every pane of a floating layer back into the layout.
+    Q_INVOKABLE void dockLayer(const QString &layerId);
     // Drops pane `blockId` on `targetId`: "left", "right", "up" or "down"
     // splits the target and puts the pane on that side; "center" swaps them.
     // A pane's terminal, so QML can take a picture of it for a drag.

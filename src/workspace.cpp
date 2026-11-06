@@ -1613,6 +1613,15 @@ void Workspace::resizeSplit(const QString &beforeBlock, const QString &afterBloc
     });
 }
 
+void Workspace::dockLayer(const QString &layerId) {
+    // The frame's button docks its own panes, whichever pane has focus; going
+    // through "the focused pane" would float a pane of the layout instead.
+    for (const QJsonValue &l : activeWindowObject().value("layers").toArray())
+        if (l.toObject().value("layer_id").toString() == layerId)
+            for (const QJsonValue &b : l.toObject().value("blocks").toArray())
+                performOnPane(b.toObject().value("block_id").toString(), "pane.float");
+}
+
 void Workspace::raiseLayer(const QString &layerId) {
     m_rex->call("session.raise_layer", {{"session_id", m_sessionId}, {"layer_id", layerId}});
 }
