@@ -127,6 +127,8 @@ public:
     Q_INVOKABLE void raiseLayer(const QString &layerId);
     // Drops pane `blockId` on `targetId`: "left", "right", "up" or "down"
     // splits the target and puts the pane on that side; "center" swaps them.
+    // A pane's terminal, so QML can take a picture of it for a drag.
+    Q_INVOKABLE QQuickItem *paneItem(const QString &blockId) const;
     Q_INVOKABLE void dropPane(const QString &blockId, const QString &targetId, const QString &zone);
     // Moves the border of the split between `beforeBlock` and `afterBlock`
     // so the before side gets `ratio` of the space.

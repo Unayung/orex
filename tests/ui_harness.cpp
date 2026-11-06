@@ -97,6 +97,8 @@ int main(int argc, char *argv[]) {
             QTest::mousePress(window, Qt::LeftButton, {}, from.toPoint());
             for (int i = 1; i <= 20; ++i)
                 QTest::mouseMove(window, (from + (to - from) * (i / 20.0)).toPoint(), 16);
+            // Let a frame render, as it would mid-drag, before the shot.
+            QTest::qWait(250);
             window->grabWindow().save(png);
             qInfo() << "dragged, mid-drag shot" << png;
             QTest::mouseRelease(window, Qt::LeftButton, {}, to.toPoint(), 16);

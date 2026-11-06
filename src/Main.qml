@@ -566,9 +566,19 @@ ApplicationWindow {
                                 id: barDrag
                                 enabled: bar.draggable
                                 target: null
-                                onCentroidChanged: if (active) paneArea.trackDrop(bar.modelData.block_id,
-                                                                                 bar.mapToItem(paneArea, centroid.position))
-                                onActiveChanged: if (!active) paneArea.finishDrop()
+                                onCentroidChanged: if (active) {
+                                    const p = bar.mapToItem(paneArea, centroid.position)
+                                    paneArea.trackDrop(bar.modelData.block_id, p)
+                                    dragGhost.follow(p)
+                                }
+                                onActiveChanged: {
+                                    if (active)
+                                        dragGhost.begin(bar.modelData.block_id, bar.mapToItem(paneArea, centroid.position))
+                                    else {
+                                        dragGhost.end()
+                                        paneArea.finishDrop()
+                                    }
+                                }
                             }
                         }
                     }
@@ -661,6 +671,54 @@ ApplicationWindow {
                         MenuItem { text: paneMenu.zoomed ? qsTr("Unzoom") : qsTr("Zoom"); onTriggered: paneMenu.run("pane.zoom") }
                         MenuSeparator {}
                         MenuItem { text: qsTr("Close Pane"); onTriggered: paneMenu.run("pane.close") }
+                    }
+
+                    // A small picture of the pane being dragged, under the
+                    // pointer, while the pane itself fades back.
+                    Rectangle {
+                        id: dragGhost
+                        property var source: null   // the pane's terminal
+                        property real scaleTo: 1
+                        visible: false
+                        z: 5001
+                        radius: Math.min(4, theme.radius)
+                        color: theme.background
+                        border.color: Material.accent
+                        border.width: 2
+                        opacity: 0.85
+
+                        function begin(blockId, at) {
+                            source = backend.paneItem(blockId)
+                            if (!source) return
+                            // At most 360 wide, keeping the pane's shape.
+                            scaleTo = Math.min(1, 360 / source.width)
+                            width = Math.round(source.width * scaleTo) + 4
+                            height = Math.round(source.height * scaleTo) + 4
+                            source.grabToImage(result => { ghostImage.source = result.url },
+                                               Qt.size(width - 4, height - 4))
+                            source.opacity = 0.4
+                            follow(at)
+                            visible = true
+                        }
+                        // The picture sits just below and right of the pointer, so
+                        // the drop marker under the pointer stays in view.
+                        function follow(at) {
+                            x = Math.round(at.x + 14)
+                            y = Math.round(at.y + 14)
+                        }
+                        function end() {
+                            visible = false
+                            ghostImage.source = ""
+                            if (source) source.opacity = 1
+                            source = null
+                        }
+
+                        Image {
+                            id: ghostImage
+                            anchors.fill: parent
+                            anchors.margins: 2
+                            smooth: true
+                        }
                     }
 
                     // Where the dragged pane would land.

@@ -5,6 +5,7 @@
 #include <QColor>
 #include <QGuiApplication>
 #include <QJsonArray>
+#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QProcess>
@@ -759,6 +760,9 @@ void Workspace::layoutPanes() {
         Pane &pane = m_panes[blockId];
         if (!pane.stream) {
             pane.terminal = new TerminalItem(m_area);
+            // Made here rather than by QML, so give it the pane area's QML
+            // context: QML calls on it, such as grabToImage for a drag, need one.
+            QQmlEngine::setContextForObject(pane.terminal, QQmlEngine::contextForObject(m_area));
             pane.border = new PaneBorder(m_area);
             pane.terminal->setSelectionColor(QColor(m_theme->surface()));
             pane.terminal->setFontSize(m_fontSize);
@@ -1514,6 +1518,10 @@ void Workspace::updatePaneSlot(const QString &blockId, const QString &key, const
         emit paneSlotsChanged();
         return;
     }
+}
+
+QQuickItem *Workspace::paneItem(const QString &blockId) const {
+    return m_panes.value(blockId).terminal;
 }
 
 void Workspace::dropPane(const QString &blockId, const QString &targetId, const QString &zone) {
