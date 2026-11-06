@@ -515,6 +515,44 @@ ApplicationWindow {
                         }
                     }
 
+                    // A pane's right-click menu. Its actions go to the pane it was
+                    // opened on, not to whichever pane had focus.
+                    Menu {
+                        id: paneMenu
+                        property string blockId
+                        property bool hasSelection
+                        property bool floating
+                        property bool zoomed
+                        z: 6000
+                        background: Rectangle {
+                            implicitWidth: 200
+                            color: Qt.lighter(theme.background, 1.6)
+                            border.color: theme.surface
+                            radius: Math.min(6, theme.radius)
+                        }
+                        Connections {
+                            target: backend
+                            function onPaneMenuRequested(blockId, x, y, hasSelection, floating, zoomed) {
+                                paneMenu.blockId = blockId
+                                paneMenu.hasSelection = hasSelection
+                                paneMenu.floating = floating
+                                paneMenu.zoomed = zoomed
+                                paneMenu.popup(paneArea, x, y)
+                            }
+                        }
+                        function run(id) { backend.performOnPane(blockId, id) }
+                        MenuItem { text: qsTr("Copy"); visible: paneMenu.hasSelection; height: visible ? implicitHeight : 0; onTriggered: paneMenu.run("pane.copy") }
+                        MenuItem { text: qsTr("Paste"); onTriggered: paneMenu.run("pane.paste") }
+                        MenuSeparator {}
+                        MenuItem { text: qsTr("Split Right"); onTriggered: paneMenu.run("pane.split.right") }
+                        MenuItem { text: qsTr("Split Down"); onTriggered: paneMenu.run("pane.split.down") }
+                        MenuSeparator {}
+                        MenuItem { text: paneMenu.floating ? qsTr("Dock") : qsTr("Float"); onTriggered: paneMenu.run("pane.float") }
+                        MenuItem { text: paneMenu.zoomed ? qsTr("Unzoom") : qsTr("Zoom"); onTriggered: paneMenu.run("pane.zoom") }
+                        MenuSeparator {}
+                        MenuItem { text: qsTr("Close Pane"); onTriggered: paneMenu.run("pane.close") }
+                    }
+
                     // Where the dragged pane would land.
                     Rectangle {
                         id: dropMarker

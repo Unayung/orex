@@ -49,7 +49,8 @@ looking at it, orex sends a desktop notification; its Open button takes you
 there. Click the bell on a session in the list to mute its notifications (🔕);
 its status still shows in orex.
 
-Click a pane to focus it. Everything else goes to the program in the pane.
+Right-click a pane for copy, paste, split, float, zoom, and close; they act on
+that pane. Click a pane to focus it. Everything else goes to the program in the pane.
 
 With more than one pane, each has a handle on its top edge. Drag it onto
 another pane: near an edge puts it on that side, the middle swaps the two.

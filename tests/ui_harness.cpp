@@ -130,6 +130,37 @@ int main(int argc, char *argv[]) {
             qInfo() << "addRemoteHost" << what;
             workspace.addRemoteHost(what.section('|', 0, 0), what.section('|', 1));
         });
+    // Right-clicks at "ms:x,y" and grabs the menu that opens; then types
+    // OREX_KEYS "ms:Key,Key,…" (Qt key names) into the window.
+    if (qEnvironmentVariableIsSet("OREX_RCLICK")) {
+        const QString v = qEnvironmentVariable("OREX_RCLICK");
+        QTimer::singleShot(v.section(':', 0, 0).toInt(), [window, at = v.section(':', 1)] {
+            window->requestActivate();
+            const QPoint p(at.section(',', 0, 0).toInt(), at.section(',', 1).toInt());
+            QTest::mouseClick(window, Qt::RightButton, {}, p);
+            QTimer::singleShot(400, [window] {
+                window->grabWindow().save(qEnvironmentVariable("OREX_HOVER_DIR", "/tmp") + "/rclick.png");
+                qInfo() << "right-clicked, menu grabbed";
+                // Picks a menu item right away, before the offscreen window
+                // loses activation and the menu closes: OREX_MENUCLICK "x,y".
+                if (qEnvironmentVariableIsSet("OREX_MENUCLICK")) {
+                    const QString c = qEnvironmentVariable("OREX_MENUCLICK");
+                    QTest::mouseClick(window, Qt::LeftButton, {}, QPoint(c.section(',', 0, 0).toInt(), c.section(',', 1).toInt()));
+                    qInfo() << "clicked menu item at" << c;
+                }
+            });
+        });
+    }
+    if (qEnvironmentVariableIsSet("OREX_KEYS")) {
+        const QString v = qEnvironmentVariable("OREX_KEYS");
+        QTimer::singleShot(v.section(':', 0, 0).toInt(), [window, keys = v.section(':', 1).split(',')] {
+            for (const QString &k : keys) {
+                const QKeySequence seq(k);
+                QTest::keyClick(window, Qt::Key(seq[0].key()), seq[0].keyboardModifiers(), 60);
+            }
+            qInfo() << "typed" << keys;
+        });
+    }
     for (int i = 1; i <= shots; ++i)
         QTimer::singleShot(i * 2000, [=, &workspace, &app] {
             window->grabWindow().save(QStringLiteral("%1-%2.png").arg(prefix).arg(i));

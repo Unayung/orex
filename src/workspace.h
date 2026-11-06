@@ -97,6 +97,9 @@ public:
     // Runs one of `actions` by id. `arg` is the tab number for tab.goto and
     // the new name for the rename actions.
     Q_INVOKABLE void perform(const QString &id, const QVariant &arg = {});
+    // The same, for a given pane rather than the focused one: the pane a
+    // context menu was opened on. Also "pane.copy" and "pane.paste".
+    Q_INVOKABLE void performOnPane(const QString &blockId, const QString &id);
     // Moves a floating layer so its top-left corner is at x, y (pixels of the
     // pane area), keeping its size.
     Q_INVOKABLE void moveLayer(const QString &layerId, qreal x, qreal y);
@@ -126,6 +129,9 @@ signals:
     void focusFollowsMouseChanged();
     void fontSizeChanged();
     void hostAddFinished(bool ok, const QString &message);
+    // A right click on a pane: where (pixels of the pane area), and what the
+    // menu should offer.
+    void paneMenuRequested(const QString &blockId, qreal x, qreal y, bool hasSelection, bool floating, bool zoomed);
 
 private:
     struct Host {
@@ -210,6 +216,8 @@ private:
     // A pane to focus once the session being selected is attached.
     QString m_pendingFocus;
     QString m_pendingTab;
+    // The pane an action from a context menu acts on, while it runs.
+    QString m_actionTarget;
     // Sessions whose notifications are off, as "host key|session ID".
     QSet<QString> m_muted;
     // Each floating layer's frame position and its panes' positions as last

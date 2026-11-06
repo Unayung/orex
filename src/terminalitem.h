@@ -44,6 +44,11 @@ public:
     // local terminal follows this rather than the item's geometry.
     Q_INVOKABLE void resizeGrid(int cols, int rows);
 
+    // For the pane's context menu.
+    Q_INVOKABLE bool hasSelection() const;
+    Q_INVOKABLE void copySelection();
+    Q_INVOKABLE void paste();
+
     // Rex's "theme" message: default foreground, background and cursor as
     // RRGGBB or #RRGGBB, and "palette" as "index=RRGGBB" changes to the
     // 256-color palette. A color left out is the built-in one, and each
@@ -54,6 +59,8 @@ public:
     void paint(QPainter *painter) override;
 
 signals:
+    // A right click, at a point in the item, for the pane's context menu.
+    void contextMenuRequested(QPointF position);
     void fontSizeChanged();
     // The pointer came into the pane, for focus that follows the mouse.
     void pointerEntered();

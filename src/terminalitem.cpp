@@ -1170,6 +1170,12 @@ void TerminalItem::mousePressEvent(QMouseEvent *event)
     forceActiveFocus(Qt::MouseFocusReason);
     event->accept();
     const QPointF pos = event->position();
+    // A right click always opens orex's menu, even over a program that takes
+    // the mouse: Claude Code turns mouse reporting on but has no use for it.
+    if (event->button() == Qt::RightButton && !d->pressReported) {
+        emit contextMenuRequested(pos);
+        return;
+    }
     if (d->pressReported || d->mouseTracking(event->modifiers())) {
         d->pressReported = true;
         d->sendMouse(GHOSTTY_MOUSE_ACTION_PRESS, mapButton(event->button()), event->modifiers(), pos, true);
@@ -1316,4 +1322,20 @@ void TerminalItem::hoverEnterEvent(QHoverEvent *event)
 {
     emit pointerEntered();
     QQuickPaintedItem::hoverEnterEvent(event);
+}
+
+bool TerminalItem::hasSelection() const
+{
+    return d->hasSelection;
+}
+
+void TerminalItem::copySelection()
+{
+    d->copySelection(QClipboard::Clipboard);
+    d->copySelection(QClipboard::Selection);
+}
+
+void TerminalItem::paste()
+{
+    d->paste(QClipboard::Clipboard);
 }

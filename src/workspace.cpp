@@ -724,6 +724,15 @@ void Workspace::layoutPanes() {
             // Pointing at a pane focuses it when that's turned on, but only
             // while orex is the active window and no mouse button is held,
             // so passing over it on the way elsewhere or mid-drag doesn't.
+            connect(pane.terminal, &TerminalItem::contextMenuRequested, this,
+                    [this, blockId, terminal = pane.terminal](QPointF position) {
+                if (!terminal || !m_area)
+                    return;
+                const QPointF at = terminal->mapToItem(m_area, position);
+                emit paneMenuRequested(blockId, at.x(), at.y(), terminal->hasSelection(),
+                                       layerOf(blockId).value("kind").toString() == "floating",
+                                       !activeWindowObject().value("zoomed_block_id").toString().isEmpty());
+            });
             connect(pane.terminal, &TerminalItem::pointerEntered, this, [this, terminal = pane.terminal] {
                 if (m_focusFollowsMouse && terminal && !terminal->hasActiveFocus() && m_area && m_area->window() &&
                     m_area->window()->isActive() && QGuiApplication::mouseButtons() == Qt::NoButton)
@@ -789,6 +798,8 @@ QJsonObject Workspace::activeWindowObject() const {
 }
 
 QString Workspace::focusedBlock() const {
+    if (!m_actionTarget.isEmpty())
+        return m_actionTarget;
     return activeWindowObject().value("focused_block_id").toString();
 }
 
@@ -1298,6 +1309,25 @@ void Workspace::rebuildAsLayout(const QJsonObject &window, const QJsonObject &la
         };
         (*step)(0);
     });
+}
+
+void Workspace::performOnPane(const QString &blockId, const QString &id) {
+    const Pane pane = m_panes.value(blockId);
+    if (id == "pane.copy") {
+        if (pane.terminal)
+            pane.terminal->copySelection();
+        return;
+    }
+    if (id == "pane.paste") {
+        if (pane.terminal)
+            pane.terminal->paste();
+        return;
+    }
+    // Everything else acts on "the focused pane"; for this one call, that's
+    // the pane the menu belongs to, whatever the server last heard.
+    m_actionTarget = blockId;
+    perform(id);
+    m_actionTarget.clear();
 }
 
 void Workspace::moveLayer(const QString &layerId, qreal x, qreal y) {
