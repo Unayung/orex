@@ -39,6 +39,9 @@ class Workspace : public QObject {
     Q_PROPERTY(QVariantList frames READ frames NOTIFY framesChanged)
     // Minimized floating layers: layer_id, title.
     Q_PROPERTY(QVariantList minimized READ minimized NOTIFY framesChanged)
+    // Every visible pane's slot, for drag handles and drop targets:
+    // block_id, x, y, width, height (pixels of the pane area), z, floating.
+    Q_PROPERTY(QVariantList paneSlots READ paneSlots NOTIFY paneSlotsChanged)
     // Every action orex offers: id, title, shortcut. The palette lists them.
     Q_PROPERTY(QVariantList actions READ actions CONSTANT)
 
@@ -54,6 +57,7 @@ public:
     QString status() const { return m_status; }
     QVariantList frames() const { return m_frames; }
     QVariantList minimized() const { return m_minimized; }
+    QVariantList paneSlots() const { return m_paneSlots; }
     QVariantList actions() const;
 
     // Connects, then shows the session whose label or ID suffix is
@@ -79,6 +83,9 @@ public:
     // dragged, before the server hears about it. x, y as for moveLayer.
     Q_INVOKABLE void dragLayer(const QString &layerId, qreal x, qreal y);
     Q_INVOKABLE void raiseLayer(const QString &layerId);
+    // Drops pane `blockId` on `targetId`: "left", "right", "up" or "down"
+    // splits the target and puts the pane on that side; "center" swaps them.
+    Q_INVOKABLE void dropPane(const QString &blockId, const QString &targetId, const QString &zone);
     Q_INVOKABLE void setLayerMinimized(const QString &layerId, bool minimized);
 
 signals:
@@ -87,6 +94,7 @@ signals:
     void viewChanged();
     void statusChanged();
     void framesChanged();
+    void paneSlotsChanged();
 
 private:
     struct Host {
@@ -150,7 +158,7 @@ private:
     QPointer<QQuickItem> m_area;
     QHash<QString, Pane> m_panes;
     QString m_status;
-    QVariantList m_frames, m_minimized;
+    QVariantList m_frames, m_minimized, m_paneSlots;
     // Each floating layer's frame position and its panes' positions as last
     // laid out, so a drag can move them by the same offset.
     struct DraggedLayer { QPointF frame; QList<QPair<QString, QPointF>> panes; };

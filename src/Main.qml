@@ -157,6 +157,84 @@ ApplicationWindow {
                     anchors.fill: parent
                     anchors.margins: 4
 
+                    // Dragging a pane by its handle: the pane under the pointer
+                    // and the part of it the pane would go to.
+                    property string dragFrom: ""
+                    property string dropTarget: ""
+                    property string dropZone: ""
+
+                    function trackDrop(from, p) {
+                        dragFrom = from
+                        let best = null
+                        for (const s of backend.paneSlots) {
+                            if (s.block_id === from) continue
+                            const inside = p.x >= s.x && p.x < s.x + s.width && p.y >= s.y && p.y < s.y + s.height
+                            if (inside && (!best || s.z > best.z)) best = s
+                        }
+                        if (!best) { dropTarget = ""; return }
+                        // The middle swaps the two panes; elsewhere the nearest
+                        // edge says which side the pane goes on.
+                        const fx = (p.x - best.x) / best.width, fy = (p.y - best.y) / best.height
+                        let zone = "center"
+                        if (fx < 0.3 || fx > 0.7 || fy < 0.3 || fy > 0.7) {
+                            const d = { left: fx, right: 1 - fx, up: fy, down: 1 - fy }
+                            zone = Object.keys(d).reduce((a, b) => d[a] <= d[b] ? a : b)
+                        }
+                        dropTarget = best.block_id
+                        dropZone = zone
+                        dropMarker.x = best.x + (zone === "right" ? best.width / 2 : 0)
+                        dropMarker.y = best.y + (zone === "down" ? best.height / 2 : 0)
+                        dropMarker.width = zone === "left" || zone === "right" ? best.width / 2 : best.width
+                        dropMarker.height = zone === "up" || zone === "down" ? best.height / 2 : best.height
+                    }
+                    function finishDrop() {
+                        if (dropTarget.length > 0)
+                            backend.dropPane(dragFrom, dropTarget, dropZone)
+                        dragFrom = ""
+                        dropTarget = ""
+                    }
+
+                    // A handle on each pane's top edge, once there's more than
+                    // one pane to arrange.
+                    Repeater {
+                        model: backend.paneSlots.length > 1 ? backend.paneSlots : []
+                        delegate: Rectangle {
+                            id: handle
+                            required property var modelData
+                            width: 36
+                            height: 8
+                            radius: 4
+                            x: Math.round(modelData.x + modelData.width / 2 - width / 2)
+                            y: Math.round(modelData.y - height / 2 + 1)
+                            z: modelData.z + 0.7
+                            color: grip.hovered || paneDrag.active ? Material.accent : Qt.lighter(theme.selection, 1.9)
+                            opacity: grip.hovered || paneDrag.active ? 1 : 0.75
+
+                            HoverHandler {
+                                id: grip
+                                cursorShape: paneDrag.active ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                            }
+                            DragHandler {
+                                id: paneDrag
+                                target: null
+                                onCentroidChanged: if (active) paneArea.trackDrop(handle.modelData.block_id,
+                                                                                 handle.mapToItem(paneArea, centroid.position))
+                                onActiveChanged: if (!active) paneArea.finishDrop()
+                            }
+                        }
+                    }
+
+                    // Where the dragged pane would land.
+                    Rectangle {
+                        id: dropMarker
+                        visible: paneArea.dropTarget.length > 0
+                        z: 5000
+                        radius: Math.min(4, theme.radius)
+                        color: Qt.rgba(Material.accent.r, Material.accent.g, Material.accent.b, 0.22)
+                        border.color: Material.accent
+                        border.width: 2
+                    }
+
                     // Frames of floating layers. They share this parent with
                     // the terminals, so their z interleaves with the panes'.
                     Repeater {

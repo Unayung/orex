@@ -486,6 +486,7 @@ void Workspace::layoutPanes() {
             pane.border->setVisible(false);
     }
 
+    QVariantList slotList;
     for (const Place &place : std::as_const(places)) {
         const QString blockId = place.blockId;
         Pane &pane = m_panes[blockId];
@@ -518,6 +519,8 @@ void Workspace::layoutPanes() {
             continue;
         const qreal inset = kBorder + kPadding;
         const QRectF slot = snapped(place.px);
+        slotList.append(QVariantMap{{"block_id", blockId}, {"x", slot.x()}, {"y", slot.y()}, {"width", slot.width()},
+                                 {"height", slot.height()}, {"z", place.z}, {"floating", place.z > 0}});
         const QRectF inner = slot.adjusted(inset, inset, -inset, -inset);
         pane.terminal->setPosition(inner.topLeft());
         pane.terminal->setSize(inner.size());
@@ -539,6 +542,11 @@ void Workspace::layoutPanes() {
             pane.started = true;
             pane.stream->start();
         }
+    }
+
+    if (slotList != m_paneSlots) {
+        m_paneSlots = slotList;
+        emit paneSlotsChanged();
     }
 
     if (m_panes.contains(focusedBlock) && m_panes[focusedBlock].terminal && m_panes[focusedBlock].terminal->isVisible())
@@ -940,6 +948,46 @@ void Workspace::dragLayer(const QString &layerId, qreal x, qreal y) {
         if (pane.border)
             pane.border->setPosition(origin + offset);
     }
+    // The drag handles follow too.
+    QVariantList slotList = m_paneSlots;
+    for (QVariant &v : slotList) {
+        QVariantMap slot = v.toMap();
+        for (const auto &[blockId, origin] : it->panes)
+            if (slot.value("block_id").toString() == blockId) {
+                slot.insert("x", origin.x() + offset.x());
+                slot.insert("y", origin.y() + offset.y());
+            }
+        v = slot;
+    }
+    m_paneSlots = slotList;
+    emit paneSlotsChanged();
+}
+
+void Workspace::dropPane(const QString &blockId, const QString &targetId, const QString &zone) {
+    if (!m_rex || blockId.isEmpty() || targetId.isEmpty() || blockId == targetId)
+        return;
+    auto report = [this](const QJsonObject &, const QJsonObject &error) {
+        if (!error.isEmpty())
+            flashStatus(tr("Couldn't move the pane: %1").arg(error.value("message").toString()));
+    };
+    if (zone == "center") {
+        m_rex->call("session.swap_blocks", {{"session_id", m_sessionId}, {"block_id", blockId}, {"other_block_id", targetId}},
+                    report);
+        return;
+    }
+    // The same rule as floating: moving the layout's last pane into a
+    // floating window would leave nothing to dock back beside.
+    const QJsonObject from = layerOf(blockId), to = layerOf(targetId);
+    if (from.value("kind").toString() == "tiled" && to.value("kind").toString() != "tiled" &&
+        from.value("blocks").toArray().size() <= 1) {
+        flashStatus(tr("This is the last pane in the layout, so it stays docked."));
+        return;
+    }
+    const bool sideways = zone == "left" || zone == "right";
+    m_rex->call("session.move_block", {{"session_id", m_sessionId}, {"block_id", blockId}, {"anchor_block_id", targetId},
+                                       {"direction", sideways ? "horizontal" : "vertical"},
+                                       {"side", zone == "left" || zone == "up" ? "before" : "after"}},
+                report);
 }
 
 void Workspace::raiseLayer(const QString &layerId) {

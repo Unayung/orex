@@ -43,6 +43,10 @@ it back.
 
 Click a pane to focus it. Everything else goes to the program in the pane.
 
+With more than one pane, each has a handle on its top edge. Drag it onto
+another pane: near an edge puts it on that side, the middle swaps the two.
+Panes move between the layout and floating windows the same way.
+
 ## Build
 
 orex needs Qt 6 (base, declarative, wayland) and the `ghostty` package, which
