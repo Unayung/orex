@@ -45,11 +45,17 @@ void BlockStream::start() {
         m_data.open(m_rex->socketPath(), "/api/data", "rex.data.terminal.v1");
     });
 
+    claim();
+}
+
+void BlockStream::claim() {
     m_rex->call("session.own_block",
                 {{"session_id", m_sessionId},
                  {"block_ids", QJsonArray{m_blockId}},
                  {"mode", ownershipMode()}},
                 [this](const QJsonObject &, const QJsonObject &) {
+                    // Size and colors apply once we own the block, so send
+                    // ours again: another client may have changed both.
                     if (m_terminal && m_terminal->cols() > 0)
                         requestSize(m_terminal->cols(), m_terminal->rows());
                     if (!m_theme.isEmpty())

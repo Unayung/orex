@@ -24,6 +24,10 @@ public:
     // The session must already be attached with session.attach.
     void start();
     void stop();
+    // Becomes the block's owner again, so the pty takes this pane's size and
+    // colors. The Mac app takes blocks back while you use it, so orex claims
+    // them when you come back to orex.
+    void claim();
     // Asks Rex to give the pty these default colors, as set_theme arguments.
     // Rex applies them while this client owns the block.
     void setTheme(const QJsonObject &theme);

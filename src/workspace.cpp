@@ -3,6 +3,7 @@
 #include <QColor>
 #include <QJsonArray>
 #include <QQuickItem>
+#include <QQuickWindow>
 #include <QRectF>
 
 #include "blockstream.h"
@@ -97,6 +98,16 @@ void Workspace::reconnect() {
 
 void Workspace::setPaneArea(QQuickItem *area) {
     m_area = area;
+    // Coming back to orex from the Mac app takes the visible panes back, so
+    // they fit this window again.
+    if (QQuickWindow *window = area->window())
+        connect(window, &QWindow::activeChanged, this, [this, window] {
+            if (!window->isActive())
+                return;
+            for (const Pane &pane : std::as_const(m_panes))
+                if (pane.stream && pane.terminal && pane.terminal->isVisible())
+                    pane.stream->claim();
+        });
     connect(area, &QQuickItem::widthChanged, this, &Workspace::layoutPanes);
     connect(area, &QQuickItem::heightChanged, this, &Workspace::layoutPanes);
     layoutPanes();
@@ -287,6 +298,12 @@ void Workspace::layoutPanes() {
                 }();
                 if (focused && blockId != focusedInView)
                     m_rex.call("session.focus_block", {{"session_id", m_sessionId}, {"block_id", blockId}});
+                // Only a click or key in orex counts. Focus also moves when a
+                // layout change from another client arrives, and claiming then
+                // would pull the pane away from the Mac app you're using.
+                if (focused && m_panes.value(blockId).stream && m_area && m_area->window() &&
+                    m_area->window()->isActive())
+                    m_panes.value(blockId).stream->claim();
             });
         }
         if (!pane.terminal)

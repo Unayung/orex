@@ -31,6 +31,16 @@ int main(int argc, char *argv[]) {
     workspace.start(argv[1]);
     const QString prefix = argv[2];
     const int shots = QString(argv[3]).toInt();
+    // Simulates coming back to orex: focus moves away from the pane and back.
+    if (qEnvironmentVariableIsSet("OREX_REFOCUS_AT"))
+        QTimer::singleShot(qEnvironmentVariableIntValue("OREX_REFOCUS_AT"), [window] {
+            const auto terms = window->findChildren<TerminalItem *>();
+            if (terms.isEmpty()) return;
+            window->requestActivate();
+            window->contentItem()->forceActiveFocus();
+            terms.first()->forceActiveFocus();
+            qInfo() << "refocused, window active:" << window->isActive();
+        });
     for (int i = 1; i <= shots; ++i)
         QTimer::singleShot(i * 2000, [=, &workspace, &app] {
             window->grabWindow().save(QStringLiteral("%1-%2.png").arg(prefix).arg(i));
