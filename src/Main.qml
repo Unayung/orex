@@ -434,6 +434,49 @@ ApplicationWindow {
                         dropTarget = ""
                     }
 
+                    // Each pane's title bar: its agent's icon and the title the
+                    // program set, such as Claude Code's summary of the task.
+                    Repeater {
+                        model: backend.paneSlots
+                        delegate: Item {
+                            required property var modelData
+                            x: modelData.x + 1
+                            y: modelData.y + 1
+                            width: modelData.width - 2
+                            height: 21
+                            z: modelData.z + 0.6
+                            readonly property color fg: Qt.color(theme.foreground)
+
+                            Rectangle {
+                                anchors.fill: parent
+                                color: Qt.tint(theme.background, Qt.rgba(parent.fg.r, parent.fg.g, parent.fg.b, 0.06))
+                            }
+                            Image {
+                                id: headerIcon
+                                visible: (modelData.icon ?? "").length > 0
+                                source: modelData.icon ?? ""
+                                x: 8
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 12
+                                height: 12
+                                sourceSize: Qt.size(24, 24)
+                            }
+                            Label {
+                                anchors.verticalCenter: parent.verticalCenter
+                                x: headerIcon.visible ? 26 : 8
+                                // Stops short of the drag handle in the middle, which
+                                // shows once there's more than one pane.
+                                width: backend.paneSlots.length > 1 ? parent.width / 2 - x - 30 : parent.width - x - 8
+                                elide: Text.ElideRight
+                                text: modelData.title ?? ""
+                                font.pixelSize: 11
+                                font.bold: modelData.focused ?? false
+                                color: theme.foreground
+                                opacity: (modelData.focused ?? false) ? 0.9 : 0.55
+                            }
+                        }
+                    }
+
                     // A handle on each pane's top edge, once there's more than
                     // one pane to arrange.
                     Repeater {

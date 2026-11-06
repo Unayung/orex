@@ -167,6 +167,8 @@ private:
     // it hasn't seen yet.
     void fetchSessionView(Host *host, const QString &sessionId);
     void fetchAgent(Host *host, const QString &sessionId, const QString &blockId);
+    // Changes one field of a pane's entry in paneSlots, such as its title.
+    void updatePaneSlot(const QString &blockId, const QString &key, const QVariant &value);
     // An image URL for an agent's icon, or empty.
     static QString agentIcon(const QString &agent);
     void fetchView();

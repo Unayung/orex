@@ -26,8 +26,9 @@ static constexpr qreal kGap = 6;
 // and the text.
 static constexpr qreal kBorder = 1;
 static constexpr qreal kPadding = 4;
-// Room at the top of a pane for the half of the drag handle inside it.
-static constexpr qreal kHandleClearance = 9;
+// The title bar at the top of every pane: the agent's icon and the title its
+// program set. It also leaves room for the drag handle on the top edge.
+static constexpr qreal kHeader = 22;
 // A floating layer's border, and the title bar it's dragged by.
 static constexpr qreal kFrame = 4;
 static constexpr qreal kTitleBar = 22;
@@ -348,6 +349,7 @@ void Workspace::fetchAgent(Host *host, const QString &sessionId, const QString &
             return;
         m_agents.insert(blockId, agent);
         rebuildSessions();
+        updatePaneSlot(blockId, "icon", agentIcon(agent));
     });
 }
 
@@ -581,6 +583,7 @@ void Workspace::onEvent(Host *host, const QJsonObject &event) {
             if (name == "title_changed") {
                 m_titles.insert(blockId, block.value("payload").toObject().value("title").toString());
                 rebuildSessions();
+                updatePaneSlot(blockId, "title", m_titles.value(blockId));
             } else if (name == "process_changed") {
                 // Someone started or left an agent in this pane.
                 fetchAgent(host, payload.value("session_id").toString(), blockId);
@@ -798,10 +801,18 @@ void Workspace::layoutPanes() {
             continue;
         const qreal inset = kBorder + kPadding;
         const QRectF slot = snapped(place.px);
-        // The drag handle sits on the top edge, so the text starts below it.
-        const qreal top = kBorder + kHandleClearance;
+        // The title bar takes the top of the pane; the text starts below it.
+        const qreal top = kBorder + kHeader;
+        QString title = m_titles.value(blockId);
+        if (title.isEmpty())
+            for (const QJsonValue &l : active.value("layers").toArray())
+                for (const QJsonValue &b : l.toObject().value("blocks").toArray())
+                    if (b.toObject().value("block_id").toString() == blockId)
+                        title = b.toObject().value("label").toString();
         slotList.append(QVariantMap{{"block_id", blockId}, {"x", slot.x()}, {"y", slot.y()}, {"width", slot.width()},
-                                 {"height", slot.height()}, {"z", place.z}, {"floating", place.z > 0}});
+                                 {"height", slot.height()}, {"z", place.z}, {"floating", place.z > 0},
+                                 {"title", title}, {"icon", agentIcon(m_agents.value(blockId))},
+                                 {"focused", blockId == focusedBlock}});
         const QRectF inner = slot.adjusted(inset, top, -inset, -inset);
         pane.terminal->setPosition(inner.topLeft());
         pane.terminal->setSize(inner.size());
@@ -1401,7 +1412,7 @@ void Workspace::dragLayer(const QString &layerId, qreal x, qreal y) {
     for (const auto &[blockId, origin] : it->panes) {
         const Pane pane = m_panes.value(blockId);
         if (pane.terminal)
-            pane.terminal->setPosition(origin + offset + QPointF(kBorder + kPadding, kBorder + kHandleClearance));
+            pane.terminal->setPosition(origin + offset + QPointF(kBorder + kPadding, kBorder + kHeader));
         if (pane.border)
             pane.border->setPosition(origin + offset);
     }
@@ -1418,6 +1429,22 @@ void Workspace::dragLayer(const QString &layerId, qreal x, qreal y) {
     }
     m_paneSlots = slotList;
     emit paneSlotsChanged();
+}
+
+void Workspace::updatePaneSlot(const QString &blockId, const QString &key, const QVariant &value) {
+    // Titles change often (some programs animate them), so this touches only
+    // the one entry, not the layout, which would also move focus around.
+    QVariantList slotList = m_paneSlots;
+    for (QVariant &v : slotList) {
+        QVariantMap slot = v.toMap();
+        if (slot.value("block_id").toString() != blockId || slot.value(key) == value)
+            continue;
+        slot.insert(key, value);
+        v = slot;
+        m_paneSlots = slotList;
+        emit paneSlotsChanged();
+        return;
+    }
 }
 
 void Workspace::dropPane(const QString &blockId, const QString &targetId, const QString &zone) {
