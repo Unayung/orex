@@ -42,7 +42,7 @@ void BlockStream::start() {
         connect(&m_data, &WsClient::opened, this, [this, ticket] {
             m_data.sendBinary(QByteArray(1, '\x01') + ticket);
         });
-        m_data.open(m_rex->socketPath(), "/api/data", "rex.data.terminal.v1");
+        m_rex->openData(m_data, "/api/data", "rex.data.terminal.v1");
     });
 
     claim();

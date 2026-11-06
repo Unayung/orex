@@ -8,6 +8,7 @@ TEMPLATE = app
 LIBS += -lghostty-vt
 
 HEADERS += \
+    src/endpoint.h \
     src/wsclient.h \
     src/rexclient.h \
     src/blockstream.h \
@@ -17,6 +18,7 @@ HEADERS += \
 
 SOURCES += \
     src/main.cpp \
+    src/endpoint.cpp \
     src/wsclient.cpp \
     src/rexclient.cpp \
     src/blockstream.cpp \

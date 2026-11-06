@@ -19,13 +19,25 @@ public:
 
     explicit RexClient(QObject *parent = nullptr);
 
-    // The server's Unix socket: $REX_SERVER, else /run/user/<uid>/rex/server.sock.
-    static QString defaultSocketPath();
+    // The server's address: $REX_SERVER in any form parseEndpoint() takes,
+    // else the local server's socket, /run/user/<uid>/rex/server.sock.
+    static QString defaultServer();
+    // The old name of defaultServer(), from when only Unix sockets worked.
+    static QString defaultSocketPath() { return defaultServer(); }
 
-    void open(const QString &socketPath);
+    // Connects to the first endpoint of the address whose WebSocket upgrade
+    // succeeds, trying a bare host name's candidates in Rex's order. If none
+    // does, or the address doesn't parse, emits closed() with the reasons.
+    void open(const QString &address);
     void call(const QString &method, const QJsonObject &payload, Callback done = {});
 
-    QString socketPath() const { return m_socketPath; }
+    // The endpoint the control connection reached, valid after ready().
+    Endpoint endpoint() const { return m_endpoint; }
+    // Opens a data connection to the same server, and the same account.
+    void openData(WsClient &ws, const QString &path, const QString &subprotocol) const;
+    // The reached endpoint written as an address, which WsClient::open()
+    // also takes. Kept for callers written before openData().
+    QString socketPath() const { return m_endpoint.toString(); }
 
 signals:
     void ready();
@@ -35,9 +47,15 @@ signals:
 
 private:
     void onText(const QByteArray &utf8);
+    void tryNext();
 
     WsClient m_ws;
-    QString m_socketPath;
+    QList<Endpoint> m_candidates;
+    QStringList m_failures;
+    Endpoint m_endpoint;
+    bool m_opened = false;
+    // Counts open() calls, so a retry queued for an older one is dropped.
+    quint64 m_generation = 0;
     QHash<QString, Callback> m_pending;
     quint64 m_nextId = 1;
 };

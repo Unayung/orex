@@ -10,6 +10,8 @@ static constexpr int kApiRevision = 10;
 
 RexClient::RexClient(QObject *parent) : QObject(parent) {
     connect(&m_ws, &WsClient::opened, this, [this] {
+        m_opened = true;
+        m_candidates.clear();
         const QJsonObject hello{
             {"type", "hello"},
             {"api_revision", kApiRevision},
@@ -22,22 +24,52 @@ RexClient::RexClient(QObject *parent) : QObject(parent) {
     });
     connect(&m_ws, &WsClient::textMessage, this, &RexClient::onText);
     connect(&m_ws, &WsClient::closed, this, [this](int status, const QString &reason) {
-        emit closed(QStringLiteral("%1 %2").arg(status).arg(reason));
+        if (m_opened) {
+            emit closed(QStringLiteral("%1 %2").arg(status).arg(reason));
+            return;
+        }
+        m_failures << reason;
+        if (m_candidates.isEmpty()) {
+            emit closed(m_failures.join(QStringLiteral("; ")));
+            return;
+        }
+        // The socket that failed may still be inside its own signal, so the
+        // next attempt waits for the event loop instead of reusing it here.
+        QMetaObject::invokeMethod(this, [this, generation = m_generation] {
+            if (generation == m_generation)
+                tryNext();
+        }, Qt::QueuedConnection);
     });
 }
 
-QString RexClient::defaultSocketPath() {
+QString RexClient::defaultServer() {
     const QString fromEnv = qEnvironmentVariable("REX_SERVER");
-    if (fromEnv.startsWith('/'))
+    if (!fromEnv.isEmpty())
         return fromEnv;
-    if (fromEnv.startsWith("unix://"))
-        return fromEnv.mid(7);
     return QStringLiteral("/run/user/%1/rex/server.sock").arg(getuid());
 }
 
-void RexClient::open(const QString &socketPath) {
-    m_socketPath = socketPath;
-    m_ws.open(socketPath, "/api/control", "rex.control.v1");
+void RexClient::open(const QString &address) {
+    ++m_generation;
+    m_opened = false;
+    m_failures.clear();
+    QString error;
+    m_candidates = parseEndpoint(address, &error);
+    if (m_candidates.isEmpty()) {
+        // Like a failed connection, this is reported after open() returns.
+        QMetaObject::invokeMethod(this, [this, error] { emit closed(error); }, Qt::QueuedConnection);
+        return;
+    }
+    tryNext();
+}
+
+void RexClient::tryNext() {
+    m_endpoint = m_candidates.takeFirst();
+    m_ws.open(m_endpoint, "/api/control", "rex.control.v1");
+}
+
+void RexClient::openData(WsClient &ws, const QString &path, const QString &subprotocol) const {
+    ws.open(m_endpoint, path, subprotocol);
 }
 
 void RexClient::call(const QString &method, const QJsonObject &payload, Callback done) {
