@@ -1,7 +1,7 @@
 // Runs the real orex window offscreen against the live Rex server and saves
 // a screenshot every two seconds, so layout changes made from elsewhere
 // (rex CLI, the Mac app) can be checked without touching the desktop.
-// Usage: ui_harness <session> <out-prefix> <shots>
+// Usage: ui_harness <session> <out-prefix> <shots> [omarchy-current-dir]
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -19,7 +19,8 @@ int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
     QQuickStyle::setStyle("Material");
     qmlRegisterType<TerminalItem>("Orex", 1, 0, "TerminalItem");
-    Theme theme;
+    // A missing directory gives the default accent, for README screenshots.
+    Theme theme(argc > 4 ? argv[4] : QString());
     Workspace workspace(&theme);
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("theme", &theme);

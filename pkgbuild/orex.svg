@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" rx="14" fill="#FFD60A"/>
+  <!-- Two panes of a split, with a prompt in the left one. -->
+  <rect x="10" y="14" width="44" height="36" rx="4" fill="#191919"/>
+  <rect x="34" y="14" width="2" height="36" fill="#FFD60A"/>
+  <path d="M16 26 l6 6 -6 6" fill="none" stroke="#FFD60A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="24" y="37" width="7" height="3" rx="1.5" fill="#FFD60A"/>
+  <rect x="40" y="22" width="9" height="2.5" rx="1.25" fill="#7a7a7a"/>
+  <rect x="40" y="28" width="6" height="2.5" rx="1.25" fill="#7a7a7a"/>
+</svg>

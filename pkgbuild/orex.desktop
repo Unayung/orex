@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Orex
+Comment=Rex sessions on Omarchy
+Comment[zh_TW]=在 Omarchy 上使用 Rex 的工作階段
+Exec=orex
+Icon=orex
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=rex;terminal;multiplexer;session;
+StartupWMClass=orex

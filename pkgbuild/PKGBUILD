@@ -1,0 +1,25 @@
+pkgname=orex
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='A Rex client for Omarchy: every session, tab, and split of a Rex server in one window'
+arch=('x86_64' 'aarch64')
+license=('MIT')
+# libghostty-vt, the terminal core, ships inside the ghostty package.
+depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'ghostty')
+optdepends=('rex: the Rex server orex connects to')
+makedepends=('gcc' 'make')
+source=()
+sha256sums=()
+
+build() {
+  cd "$startdir/.."
+  ./bin/build
+}
+
+package() {
+  cd "$startdir/.."
+  install -Dm755 build/orex "$pkgdir/usr/bin/orex"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "$startdir/orex.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/orex.svg"
+  install -Dm644 "$startdir/orex.desktop" "$pkgdir/usr/share/applications/orex.desktop"
+}

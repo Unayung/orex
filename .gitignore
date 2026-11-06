@@ -1,6 +1,4 @@
-build/
-*.o
-moc_*
-qrc_*
-.qmake.stash
-Makefile
+/build/
+/pkgbuild/pkg/
+/pkgbuild/src/
+*.pkg.tar.*
