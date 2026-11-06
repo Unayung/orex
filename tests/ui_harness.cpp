@@ -114,6 +114,11 @@ int main(int argc, char *argv[]) {
             for (int i = 0; i <= 10; ++i)
                 QTest::mouseMove(window, from + (to - from) * i / 10, 10);
             qInfo() << "hovered" << from << "->" << to << "active" << window->isActive();
+            // Grab right away: the offscreen platform drops the window's
+            // activation after a moment, which ends the hover.
+            QCoreApplication::processEvents();
+            static int n = 0;
+            window->grabWindow().save(QStringLiteral("%1/hover-%2.png").arg(qEnvironmentVariable("OREX_HOVER_DIR", "/tmp")).arg(++n));
         });
     for (int i = 1; i <= shots; ++i)
         QTimer::singleShot(i * 2000, [=, &workspace, &app] {

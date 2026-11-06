@@ -60,16 +60,24 @@ ApplicationWindow {
         z: 3000
         width: 6
         height: parent.height
-        HoverHandler { id: edgeHover }
+        HoverHandler {
+            id: edgeHover
+            // Remember where along the edge the pointer is, so the tab comes
+            // out right there. It stops following once the pointer is on the
+            // tab itself, so it holds still to be clicked.
+            onPointChanged: if (hovered && !tabHover.hovered) revealTab.pointerY = point.position.y
+        }
     }
     Rectangle {
         id: revealTab
         readonly property bool shown: !sidebar.open && (edgeHover.hovered || tabHover.hovered)
+        property real pointerY: 8
         z: 3001
         width: 26
         height: 40
         x: shown ? 0 : -width
-        y: 8
+        // Centered on the pointer, kept inside the window.
+        y: Math.round(Math.max(4, Math.min(window.height - height - 4, pointerY - height / 2)))
         radius: Math.min(6, theme.radius)
         color: tabHover.hovered ? Material.accent : Qt.lighter(theme.selection, 1.3)
         border.color: Material.accent
