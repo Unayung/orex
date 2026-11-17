@@ -29,6 +29,9 @@ class PaneBorder;
 class Workspace : public QObject {
     Q_OBJECT
     Q_PROPERTY(QVariantList sessions READ sessions NOTIFY sessionsChanged)
+    // Every pane on every host running an agent or reporting a status, the
+    // ones that need you first. It changes when the session list does.
+    Q_PROPERTY(QVariantList activity READ activity NOTIFY sessionsChanged)
     Q_PROPERTY(QString currentSession READ currentSession NOTIFY currentSessionChanged)
     // The key of the host the current session runs on; "local" is this machine.
     Q_PROPERTY(QString currentHost READ currentHost NOTIFY currentSessionChanged)
@@ -68,6 +71,7 @@ public:
     ~Workspace() override;
 
     QVariantList sessions() const { return m_sessions; }
+    QVariantList activity() const;
     QString currentSession() const { return m_sessionId; }
     QString currentHost() const { return m_host ? m_host->key : QString(); }
     QVariantList windows() const;

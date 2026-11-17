@@ -22,6 +22,7 @@ ApplicationWindow {
     function run(id) {
         if (id === "palette") picker.show("actions")
         else if (id === "session.switch") picker.show("sessions")
+        else if (id === "activity") picker.show("activity")
         else if (id === "help") help.open()
         else if (id === "sidebar.toggle") sidebar.open = !sidebar.open
         else if (id === "host.add") addHost.begin()
@@ -912,15 +913,17 @@ ApplicationWindow {
         property string mode: "actions"
         property var items: mode === "actions"
             ? backend.actions.filter(a => a.id !== "palette")
+            : mode === "activity" ? backend.activity
             : backend.sessions.filter(s => s.kind === "session")
                 .map(s => ({ id: s.session_id, title: s.label, shortcut: s.host === "local" ? "" : s.host_label }))
-        readonly property var shown: items.filter(i => i.title.toLowerCase().includes(query.text.toLowerCase()))
+        readonly property var shown: items.filter(i => (i.title + " " + i.shortcut).toLowerCase().includes(query.text.toLowerCase()))
 
         function show(m) { mode = m; query.text = ""; list.currentIndex = 0; open(); query.forceActiveFocus() }
         function choose(item) {
             close()
             if (!item) return
             if (mode === "actions") window.run(item.id)
+            else if (mode === "activity") backend.focusPane(item.session_id, item.id)
             else backend.selectSession(item.id)
         }
 
@@ -937,7 +940,8 @@ ApplicationWindow {
             TextField {
                 id: query
                 Layout.fillWidth: true
-                placeholderText: picker.mode === "actions" ? qsTr("Run an action") : qsTr("Go to a session")
+                placeholderText: picker.mode === "actions" ? qsTr("Run an action")
+                               : picker.mode === "activity" ? qsTr("Go to an agent") : qsTr("Go to a session")
                 Keys.onDownPressed: list.incrementCurrentIndex()
                 Keys.onUpPressed: list.decrementCurrentIndex()
                 onAccepted: picker.choose(picker.shown[list.currentIndex])
@@ -955,10 +959,35 @@ ApplicationWindow {
                     width: ListView.view.width
                     highlighted: ListView.isCurrentItem
                     contentItem: RowLayout {
+                        // Activity rows: the status, as in the session list.
+                        Rectangle {
+                            readonly property string status: modelData.status ?? ""
+                            visible: picker.mode === "activity"
+                            Layout.preferredWidth: 9
+                            Layout.preferredHeight: 9
+                            radius: 4.5
+                            color: status === "blocked" ? theme.red : status === "done" ? theme.green
+                                 : status === "working" ? Material.accent : "transparent"
+                            border.width: status === "" || status === "idle" ? 1 : 0
+                            border.color: theme.surface
+                        }
+                        Image {
+                            visible: (modelData.icon ?? "").length > 0
+                            source: modelData.icon ?? ""
+                            Layout.preferredWidth: 14
+                            Layout.preferredHeight: 14
+                            sourceSize: Qt.size(28, 28)
+                        }
                         Label { text: modelData.title; Layout.fillWidth: true; elide: Text.ElideRight }
                         Label { text: modelData.shortcut; opacity: 0.6; font.pixelSize: 12 }
                     }
                     onClicked: picker.choose(modelData)
+                }
+                Label {
+                    anchors.centerIn: parent
+                    visible: picker.mode === "activity" && list.count === 0
+                    text: qsTr("No agents are running")
+                    opacity: 0.6
                 }
             }
         }

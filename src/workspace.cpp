@@ -320,6 +320,36 @@ void Workspace::rebuildSessions() {
     }
 }
 
+QVariantList Workspace::activity() const {
+    // blocked needs you, done waits to be read, working can be left alone.
+    const auto rank = [](const QString &s) { return s == "blocked" ? 0 : s == "done" ? 1 : s == "working" ? 2 : 3; };
+    QList<QVariantMap> rows;
+    for (const Host *host : std::as_const(m_hosts))
+        for (const QVariant &s : host->sessions) {
+            const QString sessionId = s.toMap().value("session_id").toString();
+            const QString where = host->key == "local" ? s.toMap().value("label").toString()
+                                : QStringLiteral("%1 · %2").arg(host->label, s.toMap().value("label").toString());
+            for (const QJsonValue &w : host->views.value(sessionId).value("windows").toArray())
+                for (const QJsonValue &l : w.toObject().value("layers").toArray())
+                    for (const QJsonValue &b : l.toObject().value("blocks").toArray()) {
+                        const QString blockId = b.toObject().value("block_id").toString();
+                        const QString status = m_programStatus.value(blockId);
+                        const QString agent = m_agents.value(blockId);
+                        if (agent.isEmpty() && (status.isEmpty() || status == "idle"))
+                            continue;
+                        QString title = m_titles.value(blockId);
+                        if (title.isEmpty())
+                            title = b.toObject().value("label").toString();
+                        rows.append({{"id", blockId}, {"session_id", sessionId}, {"title", title},
+                                     {"shortcut", where}, {"status", status}, {"icon", agentIcon(agent)}});
+                    }
+        }
+    std::stable_sort(rows.begin(), rows.end(), [&](const QVariantMap &a, const QVariantMap &b) {
+        return rank(a.value("status").toString()) < rank(b.value("status").toString());
+    });
+    return QVariantList(rows.cbegin(), rows.cend());
+}
+
 // The agent a process is, from its name, argv[0], or path. Claude Code's
 // process is "claude"; Hermes runs under Python but names itself "hermes".
 static QString agentOf(const QJsonObject &process) {
@@ -1187,6 +1217,7 @@ QVariantList Workspace::actions() const {
     static const A list[] = {
         {"palette", QT_TR_NOOP("Command Palette…"), "Ctrl+Shift+P"},
         {"session.switch", QT_TR_NOOP("Change Session…"), "Ctrl+Shift+K"},
+        {"activity", QT_TR_NOOP("Agent Activity…"), "Ctrl+Shift+A"},
         {"session.new", QT_TR_NOOP("New Session"), "Ctrl+Shift+N"},
         {"session.next", QT_TR_NOOP("Next Session"), "Ctrl+Shift+Down"},
         {"session.previous", QT_TR_NOOP("Previous Session"), "Ctrl+Shift+Up"},

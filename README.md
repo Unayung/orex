@@ -56,7 +56,8 @@ on their pane's border, in the session list, and on the tab: working pulses,
 blocked is red, done is green. When one needs you or finishes and you aren't
 looking at it, orex sends a desktop notification; its Open button takes you
 there. Click the bell on a session in the list to mute its notifications (🔕);
-its status still shows in orex.
+its status still shows in orex. Ctrl+Shift+A lists every pane running an agent
+on every host, the ones that need you first; pick one to go there.
 
 Right-click a pane for copy, paste, split, float, zoom, and close; they act on
 that pane. Click a pane to focus it. Everything else goes to the program in the pane.
