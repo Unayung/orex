@@ -458,7 +458,8 @@ QVariantList Workspace::windows() const {
     return list;
 }
 
-void Workspace::selectSession(const QString &sessionId) {
+void Workspace::selectSession(QString sessionId) {
+    // By value: callers pass m_wanted, which this clears below.
     Host *host = hostOf(sessionId);
     if (!host || sessionId == m_sessionId)
         return;

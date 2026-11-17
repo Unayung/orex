@@ -99,7 +99,7 @@ public:
     // The QML item the panes are laid out in.
     Q_INVOKABLE void setPaneArea(QQuickItem *area);
 
-    Q_INVOKABLE void selectSession(const QString &sessionId);
+    Q_INVOKABLE void selectSession(QString sessionId);
     // Shows a session and focuses one of its panes, in whichever tab it is.
     Q_INVOKABLE void focusPane(const QString &sessionId, const QString &blockId);
     // Turns a session's desktop notifications off or back on. Remembered.
