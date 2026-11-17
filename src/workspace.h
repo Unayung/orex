@@ -231,6 +231,7 @@ private:
     QString m_wanted;
     QVariantList m_sessions;
     QString m_sessionId;
+    QStringList m_recent; // sessions shown, most recent first
     QJsonObject m_view;
     qint64 m_revision = -1;
     bool m_fetching = false;

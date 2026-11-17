@@ -474,6 +474,8 @@ void Workspace::selectSession(QString sessionId) {
     m_host = host;
     m_rex = host->rex;
     m_sessionId = sessionId;
+    m_recent.removeAll(sessionId);
+    m_recent.prepend(sessionId);
     m_wanted.clear();
     m_view = {};
     m_revision = -1;
@@ -578,12 +580,24 @@ void Workspace::onEvent(Host *host, const QJsonObject &event) {
         refreshSessions(host);
     } else if (type == "session_destroyed") {
         refreshSessions(host);
-        if (host == m_host && payload.value("session_id").toString() == m_sessionId) {
+        const QString closed = payload.value("session_id").toString();
+        m_recent.removeAll(closed);
+        if (host == m_host && closed == m_sessionId) {
             closeAllPanes();
             m_sessionId.clear();
             m_view = {};
             emit currentSessionChanged();
             emit viewChanged();
+            // Go back to the session seen most recently, where its own tab
+            // and pane focus are as you left them; else the first one listed.
+            // The list still has the closed session until the refresh lands.
+            QStringList next = m_recent;
+            for (const QVariant &s : std::as_const(m_sessions))
+                if (s.toMap().value("kind").toString() == "session")
+                    next.append(s.toMap().value("session_id").toString());
+            for (const QString &id : std::as_const(next))
+                if (id != closed && hostOf(id))
+                    return selectSession(id);
             setStatus(tr("The session was closed."));
         }
     } else if (type == "session_event") {
