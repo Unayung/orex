@@ -433,6 +433,16 @@ ApplicationWindow {
                         text: modelData.label
                         width: implicitWidth + (status.length > 0 ? 14 : 0)
                         onClicked: backend.selectWindow(modelData.window_id)
+                        TapHandler {
+                            id: tabRightTap
+                            acceptedButtons: Qt.RightButton
+                            onTapped: {
+                                listMenu.sessionId = backend.currentSession
+                                listMenu.windowId = tab.modelData.window_id
+                                listMenu.label = tab.modelData.label ?? ""
+                                listMenu.popup(tab, tabRightTap.point.position.x, tabRightTap.point.position.y)
+                            }
+                        }
                         // The tab's most urgent pane, so a tab you aren't on
                         // can still say it needs you.
                         Rectangle {
