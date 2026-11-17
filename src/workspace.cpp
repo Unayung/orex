@@ -361,6 +361,11 @@ void Workspace::fetchSessionView(Host *host, const QString &sessionId) {
                     [this, host, sessionId](const QJsonObject &view, const QJsonObject &error) {
         if (!error.isEmpty())
             return;
+        // A session whose last tab just closed goes with it. One that was
+        // already empty when orex first saw it is left alone.
+        if (!host->views.value(sessionId).value("windows").toArray().isEmpty() &&
+            view.value("windows").toArray().isEmpty())
+            host->rex->call("session.destroy", {{"session_id", sessionId}});
         host->views.insert(sessionId, view);
         for (const QJsonValue &w : view.value("windows").toArray())
             for (const QJsonValue &l : w.toObject().value("layers").toArray())
