@@ -219,7 +219,9 @@ private:
     void programStatusChanged(Host *host, const QString &blockId, const QString &before, const QString &now);
     // Draws a pane's border for its focus and its program's status.
     void styleBorder(const QString &blockId);
-    void notify(Host *host, const QString &blockId, const QString &state);
+    // A desktop notification about a pane, unless you're looking at it or
+    // its session is muted. The title gets the session's name after it.
+    void notify(Host *host, const QString &blockId, const QString &heading, const QString &body, bool urgent);
     void clipboardWritten(Host *host, const QString &sessionId, const QString &blockId, const QJsonObject &copy);
     // Shows a status for a few seconds, for errors of single actions.
     void flashStatus(const QString &status);
@@ -243,6 +245,9 @@ private:
     // What each pane's program says: its title, and its status from OSC 7501
     // (idle, working, done, blocked), by block ID.
     QHash<QString, QString> m_titles, m_programStatus;
+    QHash<QString, QVariantMap> m_progress; // OSC 9;4 reports, by block
+    QSet<QString> m_bells;                  // panes that rang while you weren't looking
+    QHash<QString, qint64> m_clickedAt;     // when orex last sent a click to each block
     // Which coding agent runs in front in each pane (claude, hermes, codex…),
     // by block ID; empty for anything else.
     QHash<QString, QString> m_agents;

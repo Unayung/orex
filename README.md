@@ -60,7 +60,15 @@ its status still shows in orex.
 
 Right-click a pane for copy, paste, split, float, zoom, and close; they act on
 that pane. Click a pane to focus it. Everything else goes to the program in the pane.
-Right-click a session or tab in the list to rename it.
+Right-click a session or tab in the list, or a tab in the tab bar, to rename it.
+
+Click a link that a program marks as one (OSC 8) to open it in your browser.
+Drop files on a pane to upload them to that pane's machine; their paths are
+typed in once they arrive. A program's progress (OSC 9;4) shows as a line under
+its pane's title bar, its own notifications (OSC 9 and 777) pop up like the
+status ones, and a bell in a pane you aren't looking at marks it with 🔔 until
+you focus it. New tabs, splits, and sessions start in the directory of the pane
+you're in.
 
 ![The right-click menu of a pane](docs/menu.png)
 

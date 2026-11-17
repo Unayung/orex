@@ -1,6 +1,10 @@
 #include "blockstream.h"
 
+#include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
+#include <QUuid>
+#include <memory>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QtEndian>
@@ -187,4 +191,73 @@ void BlockStream::sendSize() {
                 {{"session_id", m_sessionId},
                  {"block_id", m_blockId},
                  {"args", QJsonObject{{"columns", m_pendingSize.width()}, {"rows", m_pendingSize.height()}}}});
+}
+
+void BlockStream::click(int column, int row, const QString &mods) {
+    for (const char *action : {"press", "release"})
+        m_rex->call("block.event", {{"session_id", m_sessionId},
+                                    {"block_id", m_blockId},
+                                    {"event", QJsonObject{{"type", "mouse"},
+                                                          {"payload", QJsonObject{{"action", action},
+                                                                                  {"button", "left"},
+                                                                                  {"mods", mods},
+                                                                                  {"x", column},
+                                                                                  {"y", row}}}}}});
+}
+
+void BlockStream::upload(const QStringList &paths) {
+    // Only regular files can go; a folder would need its own batch format.
+    QList<QFileInfo> files;
+    for (const QString &path : paths) {
+        const QFileInfo info(path);
+        if (info.isFile())
+            files << info;
+        else
+            emit uploadFailed(tr("Only files can be dropped, not %1").arg(info.fileName()));
+    }
+    const QString batch = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    for (int i = 0; i < files.size(); ++i) {
+        const QFileInfo info = files.at(i);
+        const QString ref = "upload:" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+        const QJsonObject args{{"ref", ref}, {"name", info.fileName()}, {"size", info.size()},
+                               {"batch", batch}, {"index", i}, {"count", files.size()}};
+        m_rex->call("com.superlogical.terminal.upload_begin",
+                    {{"session_id", m_sessionId}, {"block_id", m_blockId}, {"args", args}},
+                    [this, info](const QJsonObject &result, const QJsonObject &error) {
+            if (!error.isEmpty())
+                return emit uploadFailed(error.value("message").toString());
+            const QByteArray ticket = QByteArray::fromBase64(
+                result.value("ticket").toString().toLatin1(),
+                QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
+            // The handshake is the terminal stream's; after the WELCOME the
+            // client sends the file, and an empty message says it's all there.
+            auto *ws = new WsClient(this);
+            connect(ws, &WsClient::opened, ws, [ws, ticket] { ws->sendBinary(QByteArray(1, '\x01') + ticket); });
+            auto answered = std::make_shared<bool>(false);
+            connect(ws, &WsClient::binaryMessage, ws, [this, ws, info, answered](const QByteArray &bytes) {
+                if (std::exchange(*answered, true))
+                    return;
+                if (bytes.isEmpty() || uchar(bytes[0]) != 0x81) {
+                    emit uploadFailed(tr("%1 couldn't be uploaded").arg(info.fileName()));
+                    return ws->close();
+                }
+                QFile file(info.filePath());
+                if (!file.open(QIODevice::ReadOnly)) {
+                    emit uploadFailed(tr("Can't read %1").arg(info.fileName()));
+                    return ws->close();
+                }
+                // ponytail: the whole file is queued on the socket at once;
+                // stream it with bytesWritten if multi-GB drops matter.
+                while (!file.atEnd())
+                    ws->sendBinary(file.read(64 * 1024));
+                ws->sendBinary({});
+            });
+            connect(ws, &WsClient::closed, ws, [this, ws, info](int status, const QString &) {
+                if (status != 1000)
+                    emit uploadFailed(tr("%1 didn't finish uploading").arg(info.fileName()));
+                ws->deleteLater();
+            });
+            m_rex->openData(*ws, "/api/data", "rex.data.bytes.v1");
+        });
+    }
 }

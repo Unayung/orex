@@ -6,7 +6,7 @@
 
 // The API revision this client was written against. The server translates
 // older and newer shapes, so this only moves when orex uses something new.
-static constexpr int kApiRevision = 10;
+static constexpr int kApiRevision = 11;
 
 RexClient::RexClient(QObject *parent) : QObject(parent) {
     connect(&m_ws, &WsClient::opened, this, [this] {

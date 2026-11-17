@@ -8,6 +8,8 @@
 #pragma pop_macro("emit")
 
 #include <QClipboard>
+#include <QDropEvent>
+#include <QMimeData>
 #include <QFontDatabase>
 #include <QFontMetricsF>
 #include <QGuiApplication>
@@ -713,6 +715,7 @@ TerminalItem::TerminalItem(QQuickItem *parent)
 {
     d->q = this;
     setFlag(ItemAcceptsInputMethod, true);
+    setFlag(ItemAcceptsDrops, true);
     setAcceptedMouseButtons(Qt::LeftButton | Qt::MiddleButton | Qt::RightButton);
     // Any-event mouse tracking reports motion with no button held.
     setAcceptHoverEvents(true);
@@ -1267,6 +1270,42 @@ void TerminalItem::mouseReleaseEvent(QMouseEvent *event)
     d->copySelection(QClipboard::Selection);
     if (m_copyOnSelect)
         d->copySelection(QClipboard::Clipboard);
+
+    // A plain click goes to the server, which opens nothing itself but
+    // reports a link under it. The server only knows the live screen, so a
+    // click while scrolled back would land on another line.
+    bool atBottom = true;
+    ghostty_terminal_get(d->term, GHOSTTY_TERMINAL_DATA_VIEWPORT_ACTIVE, &atBottom);
+    if (onCell && !d->hasSelection && atBottom) {
+        const Qt::KeyboardModifiers m = event->modifiers();
+        QStringList mods;
+        if (m & Qt::ShiftModifier) mods << QStringLiteral("shift");
+        if (m & Qt::ControlModifier) mods << QStringLiteral("ctrl");
+        if (m & Qt::AltModifier) mods << QStringLiteral("alt");
+        if (m & Qt::MetaModifier) mods << QStringLiteral("super");
+        emit clicked(qFloor(event->position().x() / d->cellWidth), qFloor(event->position().y() / d->cellHeight),
+                     mods.join('+'));
+    }
+}
+
+void TerminalItem::dragEnterEvent(QDragEnterEvent *event)
+{
+    const QList<QUrl> urls = event->mimeData()->urls();
+    if (std::any_of(urls.cbegin(), urls.cend(), [](const QUrl &u) { return u.isLocalFile(); }))
+        event->acceptProposedAction();
+}
+
+void TerminalItem::dropEvent(QDropEvent *event)
+{
+    QStringList paths;
+    for (const QUrl &url : event->mimeData()->urls())
+        if (url.isLocalFile())
+            paths << url.toLocalFile();
+    if (paths.isEmpty())
+        return;
+    event->acceptProposedAction();
+    forceActiveFocus(Qt::OtherFocusReason);
+    emit filesDropped(paths);
 }
 
 // Qt sends this after the second press of a double click, which the gesture

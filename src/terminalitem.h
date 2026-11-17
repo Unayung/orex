@@ -73,6 +73,12 @@ signals:
     // The owner of the pty asks the server for this size.
     void gridSizeChanged(int cols, int rows);
     void selectionColorChanged();
+    // A left click that selected nothing, at a cell of the screen as the
+    // server sees it, with mods written the way Rex writes them ("ctrl+alt").
+    // The server decides whether a link was hit and says so in url_clicked.
+    void clicked(int column, int row, const QString &mods);
+    // Local files dropped on the terminal, to upload to its machine.
+    void filesDropped(const QStringList &paths);
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
@@ -89,6 +95,8 @@ protected:
     void hoverMoveEvent(QHoverEvent *event) override;
     void hoverEnterEvent(QHoverEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
 
 private:
     bool m_copyOnSelect = true;

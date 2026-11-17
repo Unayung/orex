@@ -33,6 +33,12 @@ public:
     // Asks Rex to give the pty these default colors, as set_theme arguments.
     // Rex applies them while this client owns the block.
     void setTheme(const QJsonObject &theme);
+    // Sends a left click at a cell to the server's terminal, which reports a
+    // link under it with url_clicked.
+    void click(int column, int row, const QString &mods);
+    // Uploads local files to the terminal's machine as one batch. Once all
+    // have arrived, the terminal types their paths.
+    void upload(const QStringList &paths);
 
     QString blockId() const { return m_blockId; }
 
@@ -42,6 +48,8 @@ public:
 signals:
     void childExited(int exitCode);
     void ended(const QString &reason);
+    // Something went wrong with an upload, for the status line.
+    void uploadFailed(const QString &message);
 
 private:
     void onBinary(const QByteArray &bytes);

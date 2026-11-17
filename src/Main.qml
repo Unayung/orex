@@ -550,6 +550,27 @@ ApplicationWindow {
                                      : Qt.tint(theme.background, Qt.rgba(bar.fg.r, bar.fg.g, bar.fg.b, 0.06))
                                 Behavior on color { ColorAnimation { duration: 90 } }
                             }
+                            // Progress a program reports with OSC 9;4, along the
+                            // bottom of the bar.
+                            Rectangle {
+                                id: progressBar
+                                readonly property var report: bar.modelData.progress ?? ({})
+                                readonly property string state: report.state ?? ""
+                                visible: state.length > 0
+                                anchors.bottom: parent.bottom
+                                height: 2
+                                width: state === "indeterminate" ? parent.width / 4
+                                     : parent.width * Math.min(100, report.progress ?? 0) / 100
+                                color: state === "error" ? theme.red : Material.accent
+                                opacity: state === "pause" ? 0.4 : 1
+                                SequentialAnimation on x {
+                                    running: progressBar.visible && progressBar.state === "indeterminate"
+                                    loops: Animation.Infinite
+                                    NumberAnimation { from: 0; to: bar.width * 3 / 4; duration: 900; easing.type: Easing.InOutSine }
+                                    NumberAnimation { from: bar.width * 3 / 4; to: 0; duration: 900; easing.type: Easing.InOutSine }
+                                    onRunningChanged: if (!running) progressBar.x = 0
+                                }
+                            }
                             Image {
                                 id: headerIcon
                                 visible: (bar.modelData.icon ?? "").length > 0
@@ -566,7 +587,7 @@ ApplicationWindow {
                                 // Stops short of the grip in the middle.
                                 width: bar.draggable ? parent.width / 2 - x - 16 : parent.width - x - 8
                                 elide: Text.ElideRight
-                                text: bar.modelData.title ?? ""
+                                text: (bar.modelData.rang ? "🔔 " : "") + (bar.modelData.title ?? "")
                                 font.pixelSize: 11
                                 font.bold: bar.modelData.focused ?? false
                                 color: theme.foreground

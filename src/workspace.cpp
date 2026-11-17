@@ -1,6 +1,8 @@
 #include "workspace.h"
 
 #include <QClipboard>
+#include <QDateTime>
+#include <QDesktopServices>
 #include <QFile>
 #include <QColor>
 #include <QGuiApplication>
@@ -281,6 +283,8 @@ void Workspace::rebuildSessions() {
                         QString title = m_titles.value(blockId);
                         if (title.isEmpty())
                             title = b.toObject().value("label").toString();
+                        if (m_bells.contains(blockId))
+                            title.prepend(QStringLiteral("🔔 "));
                         panes.append(QVariantMap{{"kind", "pane"}, {"session_id", sessionId}, {"block_id", blockId},
                                                  {"depth", tabRows ? 3 : 2}, {"icon", agentIcon(m_agents.value(blockId))},
                                                  {"label", title}, {"status", m_programStatus.value(blockId)},
@@ -632,6 +636,33 @@ void Workspace::onEvent(Host *host, const QJsonObject &event) {
                 programStatusChanged(host, blockId, m_programStatus.value(blockId), now);
             } else if (name == "program_status_removed") {
                 programStatusChanged(host, blockId, m_programStatus.value(blockId), QString());
+            } else if (name == "url_clicked") {
+                // Every attached client hears of a click, so open only what a
+                // click in orex just asked for, and only web and mail links.
+                const QUrl url(block.value("payload").toObject().value("url").toString());
+                const bool ours = QDateTime::currentMSecsSinceEpoch() - m_clickedAt.take(blockId) < 3000;
+                if (ours && QStringList{"http", "https", "mailto"}.contains(url.scheme()))
+                    QDesktopServices::openUrl(url);
+            } else if (name == "desktop_notification") {
+                const QJsonObject n = block.value("payload").toObject();
+                notify(host, blockId, n.value("title").toString(), n.value("body").toString(), false);
+            } else if (name == "progress_report") {
+                const QJsonObject p = block.value("payload").toObject();
+                if (p.value("state").toString() == "remove")
+                    m_progress.remove(blockId);
+                else
+                    m_progress.insert(blockId, p.toVariantMap());
+                updatePaneSlot(blockId, "progress", m_progress.value(blockId));
+            } else if (name == "bell") {
+                const Pane pane = m_panes.value(blockId);
+                const bool active = m_area && m_area->window() && m_area->window()->isActive();
+                if (!(active && pane.terminal && pane.terminal->isVisible())) {
+                    m_bells.insert(blockId);
+                    rebuildSessions();
+                    updatePaneSlot(blockId, "rang", true);
+                    if (m_area && m_area->window())
+                        m_area->window()->alert(0);
+                }
             }
         }
     }
@@ -828,7 +859,18 @@ void Workspace::layoutPanes() {
                     m_area->window()->isActive() && QGuiApplication::mouseButtons() == Qt::NoButton)
                     terminal->forceActiveFocus(Qt::MouseFocusReason);
             });
+            connect(pane.terminal, &TerminalItem::clicked, this, [this, blockId](int column, int row, const QString &mods) {
+                m_clickedAt.insert(blockId, QDateTime::currentMSecsSinceEpoch());
+                if (BlockStream *stream = m_panes.value(blockId).stream)
+                    stream->click(column, row, mods);
+            });
+            connect(pane.terminal, &TerminalItem::filesDropped, pane.stream, &BlockStream::upload);
+            connect(pane.stream, &BlockStream::uploadFailed, this, &Workspace::flashStatus);
             connect(pane.terminal, &QQuickItem::activeFocusChanged, this, [this, blockId](bool focused) {
+                if (focused && m_bells.remove(blockId)) {
+                    rebuildSessions();
+                    updatePaneSlot(blockId, "rang", false);
+                }
                 if (focused && blockId != this->focusedBlock())
                     m_rex->call("session.focus_block", {{"session_id", m_sessionId}, {"block_id", blockId}});
                 // Only a click or key in orex counts. Focus also moves when a
@@ -854,6 +896,7 @@ void Workspace::layoutPanes() {
         slotList.append(QVariantMap{{"block_id", blockId}, {"x", slot.x()}, {"y", slot.y()}, {"width", slot.width()},
                                  {"height", slot.height()}, {"z", place.z}, {"floating", place.z > 0},
                                  {"title", title}, {"icon", agentIcon(m_agents.value(blockId))},
+                                 {"progress", m_progress.value(blockId)}, {"rang", m_bells.contains(blockId)},
                                  {"focused", blockId == focusedBlock}});
         const QRectF inner = slot.adjusted(inset, top, -inset, -inset);
         pane.terminal->setPosition(inner.topLeft());
@@ -1032,10 +1075,10 @@ void Workspace::programStatusChanged(Host *host, const QString &blockId, const Q
     if (host == m_host)
         emit viewChanged();
     if ((now == "blocked" || now == "done") && before != now)
-        notify(host, blockId, now);
+        notify(host, blockId, now == "blocked" ? tr("Needs you") : tr("Done"), m_titles.value(blockId), now == "blocked");
 }
 
-void Workspace::notify(Host *host, const QString &blockId, const QString &state) {
+void Workspace::notify(Host *host, const QString &blockId, const QString &heading, const QString &body, bool urgent) {
     // Only when you aren't looking at that pane: orex isn't the active
     // window, or the pane isn't on screen.
     const Pane pane = m_panes.value(blockId);
@@ -1056,8 +1099,7 @@ void Workspace::notify(Host *host, const QString &blockId, const QString &state)
     if (!m_desktopNotifications || m_muted.contains(host->key + "|" + sessionId))
         return;
     const QString where = host->key == "local" ? sessionLabel : QStringLiteral("%1 · %2").arg(host->label, sessionLabel);
-    const QString title = state == "blocked" ? tr("Needs you: %1").arg(where) : tr("Done: %1").arg(where);
-    const QString body = m_titles.value(blockId);
+    const QString title = heading.isEmpty() ? where : QStringLiteral("%1: %2").arg(heading, where);
 
     // notify-send --wait prints the chosen action, so Open can bring you to
     // the pane.
@@ -1072,7 +1114,7 @@ void Workspace::notify(Host *host, const QString &blockId, const QString &state)
             m_area->window()->requestActivate();
     });
     process->start("notify-send", {"--app-name=orex", "--icon=orex", "--wait", "--action=open=" + tr("Open"),
-                                   state == "blocked" ? "--urgency=critical" : "--urgency=normal", title, body});
+                                   urgent ? "--urgency=critical" : "--urgency=normal", title, body});
 }
 
 void Workspace::clipboardWritten(Host *host, const QString &sessionId, const QString &blockId, const QJsonObject &copy) {
@@ -1301,14 +1343,15 @@ void Workspace::perform(const QString &id, const QVariant &arg) {
     }
 
     if (id == "session.new") {
-        const QJsonObject shell{{"block", QJsonObject{{"flavor", "com.superlogical.terminal.shell"}}}};
-        const QJsonObject firstWindow{{"layout", shell}};
-        m_rex->call("session.create", {{"initial_windows", QJsonArray{firstWindow}}},
-                   [this](const QJsonObject &result, const QJsonObject &error) {
-            // The new session reaches the list through session_created a
-            // moment later; select it once the list has it.
-            if (error.isEmpty())
-                m_wanted = result.value("session_id").toString();
+        // Starts where the pane you're in is, like a new tab.
+        withNewShell([this, rex = m_rex](const QJsonObject &shell) {
+            rex->call("session.create", {{"initial_windows", QJsonArray{QJsonObject{{"layout", shell}}}}},
+                      [this](const QJsonObject &result, const QJsonObject &error) {
+                // The new session reaches the list through session_created a
+                // moment later; select it once the list has it.
+                if (error.isEmpty())
+                    m_wanted = result.value("session_id").toString();
+            });
         });
     } else if (id == "session.next" || id == "session.previous") {
         stepSession(id == "session.next" ? 1 : -1);
