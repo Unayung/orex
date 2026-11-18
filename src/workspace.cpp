@@ -948,6 +948,22 @@ void Workspace::layoutPanes() {
         }
     }
 
+    // Zooming toggled in the same tab: from the pane's old slot to the whole
+    // area, or back. Switching tabs or sessions isn't a zoom.
+    const QString windowId = active.value("window_id").toString();
+    const QString wasZoomed = std::exchange(m_zoomBlock, zoomed);
+    QString zoomBlock;
+    QRectF zoomSlot;
+    if (std::exchange(m_zoomWindow, windowId) == windowId && wasZoomed != zoomed) {
+        zoomBlock = zoomed.isEmpty() ? wasZoomed : zoomed;
+        for (const QVariant &v : zoomed.isEmpty() ? slotList : m_paneSlots) {
+            const QVariantMap slot = v.toMap();
+            if (slot.value("block_id") == zoomBlock)
+                zoomSlot = QRectF(slot.value("x").toReal(), slot.value("y").toReal(),
+                                  slot.value("width").toReal(), slot.value("height").toReal());
+        }
+    }
+
     if (slotList != m_paneSlots || dividers != m_dividers) {
         m_paneSlots = slotList;
         m_dividers = dividers;
@@ -956,6 +972,13 @@ void Workspace::layoutPanes() {
     // Borders depend on how many panes show, known only now.
     for (const QString &blockId : m_panes.keys())
         styleBorder(blockId);
+    if (!zoomSlot.isEmpty()) {
+        const QRectF whole(0, 0, w, h);
+        if (zoomed.isEmpty())
+            emit paneZoomed(zoomBlock, whole, zoomSlot, false);
+        else
+            emit paneZoomed(zoomBlock, zoomSlot, whole, true);
+    }
 
     if (m_panes.contains(focusedBlock) && m_panes[focusedBlock].terminal && m_panes[focusedBlock].terminal->isVisible())
         m_panes[focusedBlock].terminal->forceActiveFocus();

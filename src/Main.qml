@@ -477,6 +477,50 @@ ApplicationWindow {
                     color: theme.background // panes draw their own borders; gaps stay plain
                 }
 
+                // Zooming: the pane is already at its new size underneath (one
+                // resize, so the program redraws once); a live picture of it
+                // grows from its old slot, or shrinks back into it, on top.
+                Item {
+                    id: zoomer
+                    anchors.fill: paneArea
+                    z: 10
+                    visible: false
+                    property bool zoomingIn
+
+                    Rectangle {
+                        anchors.fill: parent
+                        visible: zoomer.zoomingIn // the other panes go at once
+                        color: theme.background
+                    }
+                    ShaderEffectSource {
+                        id: zoomPicture
+                        sourceItem: paneArea
+                        smooth: true
+                    }
+                    ParallelAnimation {
+                        id: zoomAnimation
+                        property rect from
+                        property rect to
+                        onFinished: zoomer.visible = false
+                        NumberAnimation { target: zoomPicture; property: "x"; from: zoomAnimation.from.x; to: zoomAnimation.to.x; duration: 150; easing.type: Easing.OutCubic }
+                        NumberAnimation { target: zoomPicture; property: "y"; from: zoomAnimation.from.y; to: zoomAnimation.to.y; duration: 150; easing.type: Easing.OutCubic }
+                        NumberAnimation { target: zoomPicture; property: "width"; from: zoomAnimation.from.width; to: zoomAnimation.to.width; duration: 150; easing.type: Easing.OutCubic }
+                        NumberAnimation { target: zoomPicture; property: "height"; from: zoomAnimation.from.height; to: zoomAnimation.to.height; duration: 150; easing.type: Easing.OutCubic }
+                    }
+                    Connections {
+                        target: backend
+                        function onPaneZoomed(blockId, from, to, zoomingIn) {
+                            zoomAnimation.stop()
+                            zoomer.zoomingIn = zoomingIn
+                            zoomPicture.sourceRect = to
+                            zoomAnimation.from = from
+                            zoomAnimation.to = to
+                            zoomer.visible = true
+                            zoomAnimation.start()
+                        }
+                    }
+                }
+
                 Item {
                     id: paneArea
                     objectName: "paneArea"

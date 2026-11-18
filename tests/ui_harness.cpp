@@ -163,6 +163,9 @@ int main(int argc, char *argv[]) {
             qInfo() << "typed" << keys;
         });
     }
+    // Extra screenshots at "ms,ms,…", to catch the middle of an animation.
+    for (const QString &at : qEnvironmentVariable("OREX_GRABS").split(',', Qt::SkipEmptyParts))
+        QTimer::singleShot(at.toInt(), [=] { window->grabWindow().save(QStringLiteral("%1-at%2.png").arg(prefix, at)); });
     for (int i = 1; i <= shots; ++i)
         QTimer::singleShot(i * 2000, [=, &workspace, &app] {
             window->grabWindow().save(QStringLiteral("%1-%2.png").arg(prefix).arg(i));

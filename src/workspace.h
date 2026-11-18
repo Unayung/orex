@@ -155,6 +155,9 @@ signals:
     void statusChanged();
     void framesChanged();
     void paneSlotsChanged();
+    // A pane was zoomed or unzoomed in the tab on screen: the rectangles (pixels
+    // of the pane area) it moves between, for the animation.
+    void paneZoomed(const QString &blockId, const QRectF &from, const QRectF &to, bool in);
     void focusFollowsMouseChanged();
     void fontSizeChanged();
     void settingsChanged();
@@ -243,6 +246,7 @@ private:
     bool m_fetching = false;
     bool m_refetch = false;
     QPointer<QQuickItem> m_area;
+    QString m_zoomWindow, m_zoomBlock;  // the last layout's tab and zoomed pane
     QHash<QString, Pane> m_panes;
     QString m_status;
     QVariantList m_frames, m_minimized, m_paneSlots, m_dividers;
