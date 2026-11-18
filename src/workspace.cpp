@@ -7,6 +7,8 @@
 #include <QColor>
 #include <QGuiApplication>
 #include <QJsonArray>
+#include <QJsonDocument>
+#include <QNetworkReply>
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
@@ -95,8 +97,15 @@ Workspace::Workspace(Theme *theme, QObject *parent) : QObject(parent), m_theme(t
     m_fontSize = QSettings().value("fontSize", 12.0).toDouble();
     m_desktopNotifications = QSettings().value("desktopNotifications", true).toBool();
     m_copyOnSelect = QSettings().value("copyOnSelect", true).toBool();
+    // Older orex kept "host key|session ID"; IDs alone are what irex-push shares.
     for (const QString &key : QSettings().value("mutedSessions").toStringList())
-        m_muted.insert(key);
+        m_muted.insert(key.section('|', -1));
+    m_net = new QNetworkAccessManager(this);
+    // Mutes made in irex (or another orex) reach this one within a minute.
+    m_muteSync.setInterval(60 * 1000);
+    connect(&m_muteSync, &QTimer::timeout, this, &Workspace::syncMutes);
+    m_muteSync.start();
+    QTimer::singleShot(0, this, &Workspace::syncMutes);
     connect(m_theme, &Theme::changed, this, [this] {
         for (Pane &pane : m_panes) {
             if (pane.stream)
@@ -251,7 +260,7 @@ void Workspace::rebuildSessions() {
             QVariantMap row = s.toMap();
             const QString sessionId = row.value("session_id").toString();
             row.insert("kind", "session");
-            row.insert("muted", m_muted.contains(host->key + "|" + sessionId));
+            row.insert("muted", m_muted.contains(sessionId));
             row.insert("host", host->key);
             row.insert("host_label", host->label);
             // The panes, tab by tab, in layout order. With more than one tab,
@@ -285,6 +294,8 @@ void Workspace::rebuildSessions() {
                             title = b.toObject().value("label").toString();
                         if (m_bells.contains(blockId))
                             title.prepend(QStringLiteral("🔔 "));
+                        if (m_muted.contains(blockId))
+                            title.prepend(QStringLiteral("🔕 "));
                         panes.append(QVariantMap{{"kind", "pane"}, {"session_id", sessionId}, {"block_id", blockId},
                                                  {"depth", tabRows ? 3 : 2}, {"icon", agentIcon(m_agents.value(blockId))},
                                                  {"label", title}, {"status", m_programStatus.value(blockId)},
@@ -555,17 +566,74 @@ void Workspace::rename(const QString &sessionId, const QString &windowId, const 
     });
 }
 
-void Workspace::toggleMute(const QString &hostKey, const QString &sessionId) {
-    const QString key = hostKey + "|" + sessionId;
-    const bool muted = !m_muted.contains(key);
-    if (muted)
-        m_muted.insert(key);
-    else
-        m_muted.remove(key);
-    QSettings().setValue("mutedSessions", QStringList(m_muted.cbegin(), m_muted.cend()));
-    rebuildSessions();
-    emit sessionsChanged();
+void Workspace::toggleMute(const QString &, const QString &sessionId) {
+    const bool muted = !m_muted.contains(sessionId);
+    setMuted(sessionId, muted);
     flashStatus(muted ? tr("Notifications muted for this session") : tr("Notifications on for this session"));
+}
+
+void Workspace::togglePaneMute(const QString &blockId) {
+    const bool muted = !m_muted.contains(blockId);
+    setMuted(blockId, muted);
+    flashStatus(muted ? tr("Notifications muted for this pane") : tr("Notifications on for this pane"));
+}
+
+bool Workspace::isPaneMuted(const QString &blockId) const { return m_muted.contains(blockId); }
+
+void Workspace::setMuted(const QString &id, bool muted) {
+    if (muted)
+        m_muted.insert(id);
+    else
+        m_muted.remove(id);
+    saveMuted();
+    sendMute(id, muted);
+    rebuildSessions();
+    emit sessionsChanged(); // the list may not change, but mutedSessions did
+}
+
+void Workspace::saveMuted() {
+    QSettings().setValue("mutedSessions", QStringList(m_muted.cbegin(), m_muted.cend()));
+}
+
+// irex-push on this machine keeps the list irex and orex share; when it isn't
+// running, orex's own list is all there is. Set pushRelay to point elsewhere.
+static QUrl relayUrl(const QString &path) {
+    return QUrl(QSettings().value("pushRelay", "http://127.0.0.1:7298").toString() + path);
+}
+
+void Workspace::syncMutes() {
+    QNetworkReply *reply = m_net->get(QNetworkRequest(relayUrl("/mutes")));
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError)
+            return;
+        QSet<QString> shared;
+        for (const QJsonValue &v : QJsonDocument::fromJson(reply->readAll()).object().value("muted").toArray())
+            shared.insert(v.toString());
+        // The first time, hand over what orex had muted on its own, so irex gets it too.
+        if (!QSettings().value("mutesShared", false).toBool()) {
+            for (const QString &id : std::as_const(m_muted))
+                if (!shared.contains(id)) {
+                    sendMute(id, true);
+                    shared.insert(id);
+                }
+            QSettings().setValue("mutesShared", true);
+        }
+        // ponytail: irex-push wins, so an unmute made while it was down comes back; queue changes if that bites.
+        if (shared == m_muted)
+            return;
+        m_muted = shared;
+        saveMuted();
+        rebuildSessions();
+        emit sessionsChanged();
+    });
+}
+
+void Workspace::sendMute(const QString &id, bool muted) {
+    QNetworkRequest request(relayUrl("/mutes"));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    QNetworkReply *reply = m_net->post(request, QJsonDocument(QJsonObject{{"id", id}, {"muted", muted}}).toJson());
+    connect(reply, &QNetworkReply::finished, reply, &QObject::deleteLater);
 }
 
 void Workspace::focusTab(const QString &sessionId, const QString &windowId) {
@@ -1052,27 +1120,34 @@ QVariantList Workspace::remoteHosts() const {
 
 QVariantList Workspace::mutedSessions() const {
     QVariantList list;
-    for (const QString &key : m_muted) {
-        const QString hostKey = key.section('|', 0, 0), sessionId = key.section('|', 1);
-        QString label = sessionId.right(6), hostLabel = hostKey;
-        for (const Host *host : m_hosts)
-            if (host->key == hostKey) {
-                hostLabel = host->label;
-                for (const QVariant &s : host->sessions)
-                    if (s.toMap().value("session_id").toString() == sessionId)
-                        label = s.toMap().value("label").toString();
-            }
-        list.append(QVariantMap{{"key", key}, {"label", label}, {"host_label", hostLabel}});
+    for (const QString &id : m_muted) {
+        // A session by its label; a pane by its title, with its session's label as the note.
+        QString label = id.right(6), note;
+        for (const Host *host : m_hosts) {
+            for (const QVariant &s : host->sessions)
+                if (s.toMap().value("session_id").toString() == id) {
+                    label = s.toMap().value("label").toString();
+                    note = host->label;
+                }
+            for (auto it = host->views.cbegin(); it != host->views.cend(); ++it)
+                for (const QJsonValue &w : it.value().value("windows").toArray())
+                    for (const QJsonValue &l : w.toObject().value("layers").toArray())
+                        for (const QJsonValue &b : l.toObject().value("blocks").toArray())
+                            if (b.toObject().value("block_id").toString() == id) {
+                                label = m_titles.value(id).isEmpty() ? b.toObject().value("label").toString() : m_titles.value(id);
+                                for (const QVariant &s : host->sessions)
+                                    if (s.toMap().value("session_id").toString() == it.key())
+                                        note = tr("pane in %1").arg(s.toMap().value("label").toString());
+                            }
+        }
+        list.append(QVariantMap{{"key", id}, {"label", label}, {"host_label", note}});
     }
     return list;
 }
 
 void Workspace::unmute(const QString &key) {
-    if (!m_muted.remove(key))
-        return;
-    QSettings().setValue("mutedSessions", QStringList(m_muted.cbegin(), m_muted.cend()));
-    rebuildSessions();
-    emit sessionsChanged(); // the list may not change, but mutedSessions did
+    if (m_muted.contains(key))
+        setMuted(key, false);
 }
 
 void Workspace::removeRemoteHost(const QString &hostKey) {
@@ -1149,7 +1224,7 @@ void Workspace::notify(Host *host, const QString &blockId, const QString &headin
         if (s.toMap().value("session_id").toString() == sessionId)
             sessionLabel = s.toMap().value("label").toString();
     // Muted sessions still show their status in orex, just never pop up.
-    if (!m_desktopNotifications || m_muted.contains(host->key + "|" + sessionId))
+    if (!m_desktopNotifications || m_muted.contains(sessionId) || m_muted.contains(blockId))
         return;
     const QString where = host->key == "local" ? sessionLabel : QStringLiteral("%1 · %2").arg(host->label, sessionLabel);
     const QString title = heading.isEmpty() ? where : QStringLiteral("%1: %2").arg(heading, where);

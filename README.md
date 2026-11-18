@@ -55,8 +55,10 @@ Programs that report their status (Claude Code does, with OSC 7501) show it
 on their pane's border, in the session list, and on the tab: working pulses,
 blocked is red, done is green. When one needs you or finishes and you aren't
 looking at it, orex sends a desktop notification; its Open button takes you
-there. Click the bell on a session in the list to mute its notifications (🔕);
-its status still shows in orex. Ctrl+Shift+A lists every pane running an agent
+there. Click the bell on a session in the list to mute its notifications (🔕),
+or mute one pane from its right-click menu; its status still shows in orex.
+When [irex](https://github.com/Unayung/irex)'s irex-push runs on the same
+machine, orex and irex share one list of muted sessions and panes. Ctrl+Shift+A lists every pane running an agent
 on every host, the ones that need you first; pick one to go there.
 
 Right-click a pane for copy, paste, split, float, zoom, and close; they act on

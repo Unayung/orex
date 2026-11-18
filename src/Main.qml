@@ -744,6 +744,7 @@ ApplicationWindow {
                         property bool hasSelection
                         property bool floating
                         property bool zoomed
+                        property bool muted
                         z: 6000
                         background: Rectangle {
                             implicitWidth: 200
@@ -758,6 +759,7 @@ ApplicationWindow {
                                 paneMenu.hasSelection = hasSelection
                                 paneMenu.floating = floating
                                 paneMenu.zoomed = zoomed
+                                paneMenu.muted = backend.isPaneMuted(blockId)
                                 paneMenu.popup(paneArea, x, y)
                             }
                         }
@@ -772,6 +774,11 @@ ApplicationWindow {
                         MenuSeparator {}
                         MenuItem { text: paneMenu.floating ? qsTr("Dock") : qsTr("Float"); onTriggered: paneMenu.run("pane.float") }
                         MenuItem { text: paneMenu.zoomed ? qsTr("Unzoom") : qsTr("Zoom"); onTriggered: paneMenu.run("pane.zoom") }
+                        MenuSeparator {}
+                        MenuItem {
+                            text: paneMenu.muted ? qsTr("Unmute Notifications") : qsTr("Mute Notifications")
+                            onTriggered: backend.togglePaneMute(paneMenu.blockId)
+                        }
                         MenuSeparator {}
                         MenuItem { text: qsTr("Close Pane"); onTriggered: paneMenu.run("pane.close") }
                     }
@@ -1196,7 +1203,7 @@ ApplicationWindow {
                         onClicked: { settingsPanel.close(); addHost.begin() }
                     }
 
-                    Heading { text: qsTr("Muted sessions") }
+                    Heading { text: qsTr("Muted sessions and panes") }
                     Repeater {
                         model: backend.mutedSessions
                         delegate: SettingRow {
@@ -1208,7 +1215,7 @@ ApplicationWindow {
                     }
                     Label {
                         visible: backend.mutedSessions.length === 0
-                        text: qsTr("No muted sessions. Mute one with the bell next to it in the list.")
+                        text: qsTr("Nothing muted. Mute a session with the bell next to it in the list, or a pane from its right-click menu.")
                         opacity: 0.55
                         Layout.bottomMargin: 16
                     }

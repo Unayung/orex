@@ -7,6 +7,7 @@
 // resizes them instead of tearing down their streams.
 
 #include <QHash>
+#include <QNetworkAccessManager>
 #include <QSet>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -108,6 +109,9 @@ public:
     Q_INVOKABLE void focusPane(const QString &sessionId, const QString &blockId);
     // Turns a session's desktop notifications off or back on. Remembered.
     Q_INVOKABLE void toggleMute(const QString &hostKey, const QString &sessionId);
+    // The same for one pane, and whether a pane (or its session) is muted.
+    Q_INVOKABLE void togglePaneMute(const QString &blockId);
+    Q_INVOKABLE bool isPaneMuted(const QString &blockId) const;
     // Renames a session, or one of its tabs when windowId is set, on
     // whichever host has it, so the list can rename what isn't showing.
     Q_INVOKABLE void rename(const QString &sessionId, const QString &windowId, const QString &label);
@@ -268,8 +272,16 @@ private:
     QString m_pendingTab;
     // The pane an action from a context menu acts on, while it runs.
     QString m_actionTarget;
-    // Sessions whose notifications are off, as "host key|session ID".
+    // Sessions and panes whose notifications are off, by session or block ID.
+    // irex-push keeps the shared list, so irex and orex mute the same things;
+    // this is its copy, and the whole list when irex-push isn't running.
     QSet<QString> m_muted;
+    QNetworkAccessManager *m_net = nullptr;
+    QTimer m_muteSync;
+    void setMuted(const QString &id, bool muted);
+    void saveMuted();
+    void syncMutes();
+    void sendMute(const QString &id, bool muted);
     // Each floating layer's frame position and its panes' positions as last
     // laid out, so a drag can move them by the same offset.
     struct DraggedLayer { QPointF frame; QList<QPair<QString, QPointF>> panes; };
