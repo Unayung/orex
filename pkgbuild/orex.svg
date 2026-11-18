@@ -1,10 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <rect width="64" height="64" rx="14" fill="#FFD60A"/>
-  <!-- Two panes of a split, with a prompt in the left one. -->
-  <rect x="10" y="14" width="44" height="36" rx="4" fill="#191919"/>
-  <rect x="34" y="14" width="2" height="36" fill="#FFD60A"/>
-  <path d="M16 26 l6 6 -6 6" fill="none" stroke="#FFD60A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="24" y="37" width="7" height="3" rx="1.5" fill="#FFD60A"/>
-  <rect x="40" y="22" width="9" height="2.5" rx="1.25" fill="#7a7a7a"/>
-  <rect x="40" y="28" width="6" height="2.5" rx="1.25" fill="#7a7a7a"/>
+  <!-- The same mark as irex's app icon: a prompt and a cursor. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f2a44"/>
+      <stop offset="1" stop-color="#0b0f1a"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <path d="M18.75 20.6 L32 32 L18.75 43.4" fill="none" stroke="#2dd4bf" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="36.25" y="40.6" width="13.1" height="5.6" rx="1.5" fill="#e2e8f0"/>
 </svg>
