@@ -66,6 +66,10 @@ that pane. Click a pane to focus it. Everything else goes to the program in the 
 Right-click a session or tab in the list, or a tab in the tab bar, to rename it.
 
 Click a link that a program marks as one (OSC 8) to open it in your browser.
+Point at a file path a program printed, such as an agent's `docs/report.md`,
+and it's underlined, with a look at it if it's an image; click it to fetch it
+from the pane's machine, so a pane on another host works too, and open it with
+the desktop's app for it.
 Drop files on a pane to upload them to that pane's machine; their paths are
 typed in once they arrive. A program's progress (OSC 9;4) shows as a line under
 its pane's title bar, its own notifications (OSC 9 and 777) pop up like the
