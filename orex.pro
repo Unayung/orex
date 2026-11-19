@@ -8,6 +8,7 @@ TEMPLATE = app
 LIBS += -lghostty-vt
 
 HEADERS += \
+    src/filepaths.h \
     src/endpoint.h \
     src/wsclient.h \
     src/rexclient.h \
@@ -18,6 +19,7 @@ HEADERS += \
     src/paneborder.h
 
 SOURCES += \
+    src/filepaths.cpp \
     src/main.cpp \
     src/endpoint.cpp \
     src/wsclient.cpp \

@@ -1,5 +1,7 @@
 #include "terminalitem.h"
 
+#include "filepaths.h"
+
 // libghostty has struct fields named "emit", which Qt defines as an empty
 // macro, so the macro is set aside while its headers are read.
 #pragma push_macro("emit")
@@ -8,6 +10,7 @@
 #pragma pop_macro("emit")
 
 #include <QClipboard>
+#include <QCursor>
 #include <QDropEvent>
 #include <QMimeData>
 #include <QFontDatabase>
@@ -239,6 +242,16 @@ struct TerminalItem::Private {
     };
     std::vector<Cell> line;
     QByteArray textBuf = QByteArray(64, Qt::Uninitialized);
+
+    // The text of each row as last painted, a string per cell, for finding
+    // file paths under the pointer in what's actually on screen.
+    QList<QStringList> screen;
+    // The file path under the pointer, and the cells it covers (x1..x2 on row y).
+    QPointF hoverPos;
+    QString hoverPath;
+    QList<QLine> hoverCells;
+    QString pathAt(int column, int row, QList<QLine> *cells) const;
+    void updateHover(QPointF pos);
 
     static void onRenderHold(GhosttyTerminal terminal, void *userdata, bool held);
     void installCallbacks();
@@ -681,6 +694,63 @@ void TerminalItem::Private::applySelection(const GhosttySelection *selection)
     scheduleRepaint();
 }
 
+// A row the terminal carried on to the next: written to its last column.
+static bool wraps(const QStringList &row)
+{
+    return !row.isEmpty() && !row.last().isEmpty() && row.last() != QStringLiteral(" ");
+}
+
+// The path at a cell, whole even where the terminal wrapped it onto more rows.
+QString TerminalItem::Private::pathAt(int column, int row, QList<QLine> *cells) const
+{
+    if (row < 0 || row >= screen.size())
+        return {};
+    int first = row, last = row;
+    while (first > 0 && wraps(screen.at(first - 1)))
+        --first;
+    while (last < screen.size() - 1 && wraps(screen.at(last)))
+        ++last;
+    QStringList joined;
+    QList<int> starts; // where each row begins in joined
+    for (int r = first; r <= last; ++r) {
+        starts << joined.size();
+        joined += screen.at(r);
+    }
+    const int at = starts.at(row - first) + column;
+    for (const FilePaths::Hit &hit : FilePaths::find(joined)) {
+        if (at < hit.start || at >= hit.end)
+            continue;
+        if (cells)
+            for (int r = first; r <= last; ++r) {
+                const int from = qMax(hit.start, starts.at(r - first));
+                const int to = qMin(hit.end, starts.at(r - first) + int(screen.at(r).size()));
+                if (from < to)
+                    cells->append(QLine(from - starts.at(r - first), r, to - starts.at(r - first), r));
+            }
+        return hit.path;
+    }
+    return {};
+}
+
+void TerminalItem::Private::updateHover(QPointF pos)
+{
+    hoverPos = pos;
+    QList<QLine> cells;
+    const QString path = pathAt(qFloor(pos.x() / cellWidth), qFloor(pos.y() / cellHeight), &cells);
+    if (path == hoverPath && cells == hoverCells)
+        return;
+    const bool changed = path != hoverPath;
+    hoverPath = path;
+    hoverCells = cells;
+    if (path.isEmpty())
+        q->unsetCursor();
+    else
+        q->setCursor(QCursor(Qt::PointingHandCursor));
+    q->update();
+    if (changed)
+        emit q->pathHovered(path, pos);
+}
+
 QByteArray TerminalItem::Private::selectionText() const
 {
     if (!hasSelection)
@@ -959,6 +1029,7 @@ void TerminalItem::paint(QPainter *painter)
     // The whole texture is redrawn every frame, so every row is read and the
     // per-row dirty flags are only cleared, not used.
     ghostty_render_state_get(d->render, GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR, &d->rowIter);
+    d->screen.clear();
     int y = 0;
     while (ghostty_render_state_row_iterator_next(d->rowIter)) {
         ghostty_render_state_row_get(d->rowIter, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, &d->rowCells);
@@ -970,6 +1041,11 @@ void TerminalItem::paint(QPainter *painter)
         while (ghostty_render_state_row_cells_next(d->rowCells))
             d->readCell(x++, colors, selected ? selection.start_x : 1, selected ? selection.end_x : 0);
         d->drawLine(painter, y);
+        QStringList text(qsizetype(d->line.size()));
+        for (const Private::Cell &c : d->line)
+            if (c.x >= 0 && c.x < text.size())
+                text[c.x] = c.text;
+        d->screen << text;
         if (showCursor && y == cursor.viewport_y) {
             for (const Private::Cell &c : d->line) {
                 if (c.x == cursorX) {
@@ -984,6 +1060,14 @@ void TerminalItem::paint(QPainter *painter)
 
     const int cw = d->cellWidth;
     const int ch = d->cellHeight;
+    // The file path under the pointer, underlined, in the frame just drawn.
+    if (!d->hoverPath.isEmpty()) {
+        QList<QLine> cells;
+        if (d->pathAt(qFloor(d->hoverPos.x() / cw), qFloor(d->hoverPos.y() / ch), &cells) == d->hoverPath)
+            for (const QLine &l : cells)
+                painter->fillRect(QRectF(l.x1() * cw, l.y1() * ch + d->baseline + d->underlineOffset,
+                                         (l.x2() - l.x1()) * cw, d->lineWidth), defaultFg);
+    }
     const qreal top = cursor.viewport_y * ch;
 
     if (!d->preedit.isEmpty() && cursor.viewport_has_value) {
@@ -1271,6 +1355,17 @@ void TerminalItem::mouseReleaseEvent(QMouseEvent *event)
     if (m_copyOnSelect)
         d->copySelection(QClipboard::Clipboard);
 
+    // A click on a file path an agent printed opens that file. It's read from
+    // the screen as drawn, so it works while scrolled back too.
+    if (onCell && !d->hasSelection) {
+        const QString path = d->pathAt(qFloor(event->position().x() / d->cellWidth),
+                                       qFloor(event->position().y() / d->cellHeight), nullptr);
+        if (!path.isEmpty()) {
+            emit pathClicked(path);
+            return;
+        }
+    }
+
     // A plain click goes to the server, which opens nothing itself but
     // reports a link under it. The server only knows the live screen, so a
     // click while scrolled back would land on another line.
@@ -1315,8 +1410,21 @@ void TerminalItem::mouseDoubleClickEvent(QMouseEvent *event)
     event->accept();
 }
 
+void TerminalItem::hoverLeaveEvent(QHoverEvent *event)
+{
+    if (!d->hoverPath.isEmpty()) {
+        d->hoverPath.clear();
+        d->hoverCells.clear();
+        unsetCursor();
+        update();
+        emit pathHovered(QString(), event->position());
+    }
+    QQuickPaintedItem::hoverLeaveEvent(event);
+}
+
 void TerminalItem::hoverMoveEvent(QHoverEvent *event)
 {
+    d->updateHover(event->position());
     // Only any-event tracking reports motion without a button; the encoder
     // drops it for the other modes.
     if (!d->pressReported && d->mouseTracking(event->modifiers()))

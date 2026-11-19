@@ -5,6 +5,7 @@
 // into the block over the control connection.
 
 #include <QByteArray>
+#include <functional>
 #include <QJsonObject>
 #include <QObject>
 #include <QPointer>
@@ -39,6 +40,10 @@ public:
     // Uploads local files to the terminal's machine as one batch. Once all
     // have arrived, the terminal types their paths.
     void upload(const QStringList &paths);
+    // Fetches a file from the terminal's machine into orex's cache, then calls
+    // done with its local path, or with why it couldn't. A relative path is
+    // relative to where the terminal's program runs, as agents print them.
+    void download(const QString &path, std::function<void(const QString &file, const QString &error)> done);
 
     QString blockId() const { return m_blockId; }
 

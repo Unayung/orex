@@ -79,6 +79,11 @@ signals:
     void clicked(int column, int row, const QString &mods);
     // Local files dropped on the terminal, to upload to its machine.
     void filesDropped(const QStringList &paths);
+    // The pointer is over a file path on screen (empty when it leaves one), at a
+    // point in the item. The path is as the program printed it, maybe relative.
+    void pathHovered(const QString &path, QPointF position);
+    // A click on a file path, instead of a click sent to the server.
+    void pathClicked(const QString &path);
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
@@ -94,6 +99,7 @@ protected:
     void mouseDoubleClickEvent(QMouseEvent *event) override;
     void hoverMoveEvent(QHoverEvent *event) override;
     void hoverEnterEvent(QHoverEvent *event) override;
+    void hoverLeaveEvent(QHoverEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;

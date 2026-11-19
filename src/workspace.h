@@ -169,6 +169,10 @@ signals:
     // A right click on a pane: where (pixels of the pane area), and what the
     // menu should offer.
     void paneMenuRequested(const QString &blockId, qreal x, qreal y, bool hasSelection, bool floating, bool zoomed);
+    // A file path under the pointer, at a point in the pane area: its name, and
+    // for an image, a file URL to show it from (empty otherwise).
+    void pathPreview(const QString &name, const QString &image, qreal x, qreal y);
+    void pathPreviewHidden();
 
 private:
     struct Host {
@@ -260,6 +264,12 @@ private:
     QHash<QString, QVariantMap> m_progress; // OSC 9;4 reports, by block
     QSet<QString> m_bells;                  // panes that rang while you weren't looking
     QHash<QString, qint64> m_clickedAt;     // when orex last sent a click to each block
+    // The file path the pointer rests on, shown once it has stayed a moment.
+    QTimer m_previewTimer;
+    QString m_previewBlock;
+    QString m_previewPath;
+    QPointF m_previewAt;
+    void showPathPreview();
     // Which coding agent runs in front in each pane (claude, hermes, codex…),
     // by block ID; empty for anything else.
     QHash<QString, QString> m_agents;

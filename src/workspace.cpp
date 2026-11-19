@@ -3,6 +3,7 @@
 #include <QClipboard>
 #include <QDateTime>
 #include <QDesktopServices>
+#include <QFileInfo>
 #include <QFile>
 #include <QColor>
 #include <QGuiApplication>
@@ -105,6 +106,9 @@ Workspace::Workspace(Theme *theme, QObject *parent) : QObject(parent), m_theme(t
     m_muteSync.setInterval(60 * 1000);
     connect(&m_muteSync, &QTimer::timeout, this, &Workspace::syncMutes);
     m_muteSync.start();
+    m_previewTimer.setSingleShot(true);
+    m_previewTimer.setInterval(450);
+    connect(&m_previewTimer, &QTimer::timeout, this, &Workspace::showPathPreview);
     QTimer::singleShot(0, this, &Workspace::syncMutes);
     connect(m_theme, &Theme::changed, this, [this] {
         for (Pane &pane : m_panes) {
@@ -963,6 +967,34 @@ void Workspace::layoutPanes() {
                     stream->click(column, row, mods);
             });
             connect(pane.terminal, &TerminalItem::filesDropped, pane.stream, &BlockStream::upload);
+            // A file an agent mentioned: fetched from the pane's machine (so a
+            // path on m5 works too), then opened with the desktop's own app.
+            connect(pane.terminal, &TerminalItem::pathClicked, this, [this, blockId](const QString &path) {
+                BlockStream *stream = m_panes.value(blockId).stream;
+                if (!stream)
+                    return;
+                m_previewTimer.stop();
+                emit pathPreviewHidden();
+                const QString name = QFileInfo(path).fileName();
+                flashStatus(tr("Opening %1…").arg(name));
+                stream->download(path, [this, name](const QString &file, const QString &error) {
+                    if (!error.isEmpty())
+                        return flashStatus(tr("Couldn't open %1: %2").arg(name, error));
+                    QDesktopServices::openUrl(QUrl::fromLocalFile(file));
+                });
+            });
+            connect(pane.terminal, &TerminalItem::pathHovered, this,
+                    [this, blockId, terminal = pane.terminal](const QString &path, QPointF position) {
+                m_previewBlock = blockId;
+                m_previewPath = path;
+                if (path.isEmpty() || !terminal || !m_area) {
+                    m_previewTimer.stop();
+                    emit pathPreviewHidden();
+                    return;
+                }
+                m_previewAt = terminal->mapToItem(m_area, position);
+                m_previewTimer.start();
+            });
             connect(pane.stream, &BlockStream::uploadFailed, this, &Workspace::flashStatus);
             connect(pane.terminal, &QQuickItem::activeFocusChanged, this, [this, blockId](bool focused) {
                 if (focused && m_bells.remove(blockId)) {
@@ -1835,4 +1867,20 @@ void Workspace::raiseLayer(const QString &layerId) {
 void Workspace::setLayerMinimized(const QString &layerId, bool minimized) {
     m_rex->call("session.set_layer_state", {{"session_id", m_sessionId}, {"layer_id", layerId},
                                            {"state", minimized ? "minimized" : "normal"}, {"focus", !minimized}});
+}
+
+void Workspace::showPathPreview() {
+    BlockStream *stream = m_panes.value(m_previewBlock).stream;
+    if (!stream || m_previewPath.isEmpty())
+        return;
+    const QString block = m_previewBlock, path = m_previewPath, name = QFileInfo(path).fileName();
+    static const QStringList images{"png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"};
+    if (!images.contains(QFileInfo(path).suffix().toLower()))
+        return emit pathPreview(name, QString(), m_previewAt.x(), m_previewAt.y());
+    stream->download(path, [this, block, path, name](const QString &file, const QString &) {
+        if (block != m_previewBlock || path != m_previewPath)
+            return; // the pointer has moved on
+        emit pathPreview(name, file.isEmpty() ? QString() : QUrl::fromLocalFile(file).toString(), m_previewAt.x(),
+                         m_previewAt.y());
+    });
 }

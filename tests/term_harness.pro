@@ -12,4 +12,4 @@ LIBS += -lghostty-vt
 QMAKE_CXXFLAGS += -Wextra
 
 HEADERS += ../src/terminalitem.h
-SOURCES += term_harness.cpp ../src/terminalitem.cpp
+SOURCES += ../src/filepaths.cpp term_harness.cpp ../src/terminalitem.cpp

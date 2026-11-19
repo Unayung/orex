@@ -1,8 +1,11 @@
 #include "blockstream.h"
 
+#include <QCryptographicHash>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
+#include <QStandardPaths>
 #include <QUuid>
 #include <memory>
 #include <QJsonDocument>
@@ -260,4 +263,70 @@ void BlockStream::upload(const QStringList &paths) {
             m_rex->openData(*ws, "/api/data", "rex.data.bytes.v1");
         });
     }
+}
+
+void BlockStream::download(const QString &path, std::function<void(const QString &, const QString &)> done) {
+    // One folder per pane and path, so two files with the same name don't
+    // overwrite each other. ponytail: versions are kept for this run only; a
+    // restart fetches each file once more.
+    static QHash<QString, QString> versions;
+    const QString key = m_blockId + '|' + path;
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/downloads/" +
+                        QCryptographicHash::hash(key.toUtf8(), QCryptographicHash::Sha256).toHex().left(16);
+    const QString file = dir + '/' + QFileInfo(path).fileName();
+    QJsonObject args{{"ref", "download:" + QUuid::createUuid().toString(QUuid::WithoutBraces)}, {"path", path}};
+    if (versions.contains(key) && QFile::exists(file))
+        args["if_none_match"] = versions.value(key);
+    m_rex->call("com.superlogical.terminal.download_begin",
+                {{"session_id", m_sessionId}, {"block_id", m_blockId}, {"args", args}},
+                [this, key, dir, file, done](const QJsonObject &result, const QJsonObject &error) {
+        if (!error.isEmpty())
+            return done({}, error.value("message").toString());
+        if (result.value("not_modified").toBool())
+            return done(file, {});
+        const QByteArray ticket = QByteArray::fromBase64(result.value("ticket").toString().toLatin1(),
+                                                         QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
+        const QString version = result.value("version").toString();
+        // The terminal stream's handshake; then the file's bytes. How it ends
+        // isn't written down: an empty message, as uploads end, or a close.
+        auto *ws = new WsClient(this);
+        auto bytes = std::make_shared<QByteArray>();
+        auto welcomed = std::make_shared<bool>(false);
+        auto finished = std::make_shared<bool>(false);
+        auto finish = [ws, bytes, finished, key, dir, file, version, done](const QString &problem) {
+            if (std::exchange(*finished, true))
+                return;
+            QString why = problem;
+            if (why.isEmpty()) {
+                QDir().mkpath(dir);
+                QFile out(file);
+                if (out.open(QIODevice::WriteOnly) && out.write(*bytes) == bytes->size()) {
+                    if (version.isEmpty())
+                        versions.remove(key); // the server can't vouch for it
+                    else
+                        versions.insert(key, version);
+                } else {
+                    why = QObject::tr("can't write %1").arg(file);
+                }
+            }
+            done(why.isEmpty() ? file : QString(), why);
+            ws->close();
+        };
+        connect(ws, &WsClient::opened, ws, [ws, ticket] { ws->sendBinary(QByteArray(1, '\x01') + ticket); });
+        connect(ws, &WsClient::binaryMessage, ws, [bytes, welcomed, finish](const QByteArray &message) {
+            if (!std::exchange(*welcomed, true)) {
+                if (message.isEmpty() || uchar(message[0]) != 0x81)
+                    finish(QObject::tr("the server refused it"));
+                return;
+            }
+            if (message.isEmpty())
+                return finish({});
+            bytes->append(message);
+        });
+        connect(ws, &WsClient::closed, ws, [ws, welcomed, finish](int status, const QString &) {
+            finish(*welcomed && status == 1000 ? QString() : QObject::tr("it stopped partway (%1)").arg(status));
+            ws->deleteLater();
+        });
+        m_rex->openData(*ws, "/api/data", "rex.data.bytes.v1");
+    });
 }

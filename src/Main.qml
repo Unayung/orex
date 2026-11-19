@@ -736,6 +736,54 @@ ApplicationWindow {
                         }
                     }
 
+                    // A file path under the pointer: its name, and for an image, a
+                    // look at it. A plain item, not a popup, so it never takes the
+                    // pointer from the terminal under it.
+                    Rectangle {
+                        id: pathPeek
+                        property string name
+                        property string image
+                        visible: false
+                        z: 50
+                        width: peekColumn.width + 16
+                        height: peekColumn.height + 16
+                        radius: 8
+                        color: theme.surface
+                        border.color: Qt.lighter(theme.surface, 1.5)
+                        Column {
+                            id: peekColumn
+                            x: 8
+                            y: 8
+                            spacing: 6
+                            Image {
+                                visible: pathPeek.image !== ""
+                                source: pathPeek.image
+                                asynchronous: true
+                                cache: false
+                                fillMode: Image.PreserveAspectFit
+                                sourceSize.width: 360
+                                sourceSize.height: 240
+                            }
+                            Label {
+                                text: qsTr("%1 · click to open").arg(pathPeek.name)
+                                color: theme.foreground
+                                font.pixelSize: 12
+                            }
+                        }
+                        Connections {
+                            target: backend
+                            function onPathPreview(name, image, x, y) {
+                                pathPeek.name = name
+                                pathPeek.image = image
+                                pathPeek.x = Math.max(4, Math.min(x + 12, paneArea.width - 384))
+                                // Below the pointer, or above it near the bottom.
+                                pathPeek.y = y + 280 < paneArea.height ? y + 18 : Math.max(4, y - 280)
+                                pathPeek.visible = true
+                            }
+                            function onPathPreviewHidden() { pathPeek.visible = false }
+                        }
+                    }
+
                     // A pane's right-click menu. Its actions go to the pane it was
                     // opened on, not to whichever pane had focus.
                     Menu {
